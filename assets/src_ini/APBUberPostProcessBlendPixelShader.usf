@@ -1,0 +1,46 @@
+/***************************************************************************************/
+/*! Verux
+****************************************************************************************/
+
+#include "Common.usf"
+#include "PostProcessCommon.usf"
+
+#define SET_COLORGRADING 0 // Color grading: 1 = On, 0 = off
+
+// Color grading parameters.
+#if SET_COLORGRADING
+    sampler2D ColorGradingLUT;
+#endif
+
+// The per-color weighting to be used for luminance calculations in RGB order.
+static const float3 LuminanceVector = float3(0.3, 0.59, 0.11);
+
+void Main(
+    in float2 UV : TEXCOORD0,
+    in float2 SceneUV : TEXCOORD1,
+    out float4 OutColor : COLOR0
+)
+{
+    float4 sceneColor = tex2D(SceneColorTexture, SceneUV);
+
+    // Reduce transparency to one-third
+    sceneColor.a *= 1.0f / 3.0f;
+
+    float3 AdjustedColor = sceneColor.rgb;
+
+    // Red-to-Grayscale conversion with washed-out effect
+    if (sceneColor.r > sceneColor.g && sceneColor.r > sceneColor.b)
+    {
+        float grayscale = dot(sceneColor.rgb, LuminanceVector);
+        AdjustedColor.r = lerp(grayscale, sceneColor.r, 0.01f);
+        AdjustedColor.g = lerp(grayscale, sceneColor.g, 0.01f);
+        AdjustedColor.b = lerp(grayscale, sceneColor.b, 0.75f);
+    }
+
+    #if SET_COLORGRADING
+        float3 FinalColor = ColorLookupTable(ColorGradingLUT, AdjustedColor);
+        OutColor = float4(FinalColor, sceneColor.a);
+    #else
+        OutColor = float4(AdjustedColor, sceneColor.a);
+    #endif
+}
