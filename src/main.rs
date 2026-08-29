@@ -1,15 +1,34 @@
 #![windows_subsystem = "windows"]
 
+use robust_rust::log_err;
 use std::env;
 use std::os::windows::ffi::OsStrExt;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
-use windows::Win32::Security::{
-    GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
-};
 use windows::Win32::UI::Shell::ShellExecuteW;
-use windows::Win32::UI::WindowsAndMessaging::SW_SHOW;
+use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK, SW_SHOW};
+
+fn show_fatal_error(message: &str) {
+    let title: Vec<u16> = std::ffi::OsStr::new("Verux APB")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let body = format!("{message}\n\nDetails were written to Documents\\VeruxAPB\\verux_apb.log.");
+    let body: Vec<u16> = std::ffi::OsStr::new(&body)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    unsafe {
+        let _ = MessageBoxW(
+            None,
+            PCWSTR(body.as_ptr()),
+            PCWSTR(title.as_ptr()),
+            MB_OK | MB_ICONERROR,
+        );
+    }
+}
 
 fn is_elevated() -> bool {
     unsafe {
@@ -121,7 +140,8 @@ fn main() {
         if run_as_admin(&original_appdata) {
             std::process::exit(0);
         } else {
-            eprintln!("Failed to relaunch as administrator.");
+            log_err!("Failed to relaunch as administrator.");
+            show_fatal_error("Verux APB requires administrator permission to start.");
             std::process::exit(1);
         }
     }
@@ -131,7 +151,8 @@ fn main() {
     }
 
     if let Err(error) = robust_rust::ui::run() {
-        eprintln!("failed to start {error}");
+        log_err!("failed to start {error}");
+        show_fatal_error(&format!("Verux APB could not start: {error}"));
     }
 
     unsafe {

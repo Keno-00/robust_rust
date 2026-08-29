@@ -29,7 +29,7 @@ pub enum BindingTarget {
     Visuals,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct UiState {
     pub config: ProfileConfig,
     pub logged_in: bool,
@@ -56,6 +56,7 @@ pub struct UiState {
     pub binding_target: Option<BindingTarget>,
     pub awaiting_release: bool,
     pub runner_shared: Option<std::sync::Arc<std::sync::Mutex<crate::runner::RunnerControl>>>,
+    pub runner_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl UiState {
@@ -64,6 +65,15 @@ impl UiState {
         let selected_profile = profiles.iter().position(|p| p == "default").unwrap_or(0);
         let config = crate::config::load_profile(&profiles[selected_profile]).unwrap_or_default();
         let license_key = crate::config::load_license_key();
+        let selected_com_port = com_ports
+            .iter()
+            .position(|port| port.eq_ignore_ascii_case(&config.com_port))
+            .or_else(|| {
+                com_ports
+                    .iter()
+                    .position(|port| port.eq_ignore_ascii_case("COM1"))
+            })
+            .unwrap_or(0);
         Self {
             lines_color: rgb_to_float(config.lines_color),
             fov_color: rgb_to_float(config.fov_color),
@@ -76,7 +86,7 @@ impl UiState {
             target_folder: String::new(),
             status: String::new(),
             current_save_entry_name: profiles[selected_profile].clone(),
-            selected_com_port: 0,
+            selected_com_port,
             com_ports,
             input_backend: InputBackend::Arduino,
             trigger_bounds: [10, 10],
@@ -90,6 +100,7 @@ impl UiState {
             binding_target: None,
             awaiting_release: false,
             runner_shared: None,
+            runner_thread: None,
         }
     }
 }
@@ -101,6 +112,17 @@ impl Default for UiState {
                 .map(|ports| ports.into_iter().map(|port| port.port_name).collect())
                 .unwrap_or_default(),
         )
+    }
+}
+
+struct ClipboardSupport(arboard::Clipboard);
+
+impl imgui::ClipboardBackend for ClipboardSupport {
+    fn get(&mut self) -> Option<String> {
+        self.0.get_text().ok()
+    }
+    fn set(&mut self, value: &str) {
+        let _ = self.0.set_text(value.to_owned());
     }
 }
 
@@ -116,13 +138,18 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     if let Ok(icon_image) = image::load_from_memory(include_bytes!("../assets/veruxapp.ico")) {
         let icon_rgba = icon_image.to_rgba8();
         let (width, height) = icon_rgba.dimensions();
-        if let Ok(window_icon) = glium::winit::window::Icon::from_rgba(icon_rgba.into_raw(), width, height) {
+        if let Ok(window_icon) =
+            glium::winit::window::Icon::from_rgba(icon_rgba.into_raw(), width, height)
+        {
             window.set_window_icon(Some(window_icon));
         }
     }
 
     let mut imgui = imgui::Context::create();
     imgui.set_ini_filename(None);
+    if let Ok(clipboard) = arboard::Clipboard::new() {
+        imgui.set_clipboard_backend(ClipboardSupport(clipboard));
+    }
     imgui
         .fonts()
         .add_font(&[imgui::FontSource::DefaultFontData { config: None }]);
@@ -143,6 +170,17 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     event_loop.run(move |event, window_target| match event {
         glium::winit::event::Event::UserEvent(()) => {
             window.set_visible(true);
+            let license_error = state.runner_shared.as_ref().and_then(|shared| {
+                shared
+                    .lock()
+                    .ok()
+                    .and_then(|mut control| control.license_error.take())
+            });
+            if let Some(message) = license_error {
+                state.logged_in = false;
+                state.start_requested = false;
+                state.auth_notify = message;
+            }
         }
         glium::winit::event::Event::NewEvents(_) => {
             let now = Instant::now();
@@ -163,7 +201,19 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 if let Some(res) = crate::license::heartbeat_usage_session(false) {
                     if !res.valid {
                         state.logged_in = false;
+                        state.start_requested = false;
                         state.auth_notify = res.message.clone();
+                        if let Some(ref shared) = state.runner_shared {
+                            if let Ok(mut lock) = shared.lock() {
+                                lock.active = false;
+                                lock.exit = true;
+                            }
+                        }
+                        if let Some(handle) = state.runner_thread.take() {
+                            let _ = handle.join();
+                        }
+                        state.runner_shared = None;
+                        window.set_visible(true);
                     }
                 }
             }
@@ -199,7 +249,10 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                                         state.config.visuals_key_name = name;
                                     }
                                 }
-                                let _ = crate::config::save_profile(&state.current_save_entry_name, &state.config);
+                                let _ = crate::config::save_profile(
+                                    &state.current_save_entry_name,
+                                    &state.config,
+                                );
                                 state.binding_target = None;
                                 break;
                             }
@@ -230,10 +283,11 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 window.set_visible(false);
                 let config = state.config.clone();
                 let com_port = if state.com_ports.is_empty() {
-                    None
+                    Some("COM1".to_string())
                 } else {
                     Some(state.com_ports[state.selected_com_port].clone())
                 };
+                state.config.com_port = com_port.clone().unwrap_or_else(|| "COM1".to_string());
 
                 let need_spawn = if let Some(ref shared) = state.runner_shared {
                     if let Ok(lock) = shared.lock() {
@@ -246,18 +300,30 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 };
 
                 if need_spawn {
-                    let shared = std::sync::Arc::new(std::sync::Mutex::new(crate::runner::RunnerControl {
-                        active: true,
-                        config,
-                        com_port,
-                        exit: false,
-                        thread_running: true,
-                    }));
+                    if let Some(ref shared) = state.runner_shared {
+                        if let Ok(mut lock) = shared.lock() {
+                            lock.exit = true;
+                        }
+                    }
+                    if let Some(handle) = state.runner_thread.take() {
+                        let _ = handle.join();
+                    }
+
+                    let shared =
+                        std::sync::Arc::new(std::sync::Mutex::new(crate::runner::RunnerControl {
+                            active: true,
+                            config,
+                            com_port,
+                            exit: false,
+                            thread_running: true,
+                            license_error: None,
+                        }));
                     state.runner_shared = Some(shared.clone());
                     let thread_proxy = proxy.clone();
-                    std::thread::spawn(move || {
+                    let handle = std::thread::spawn(move || {
                         crate::runner::run_action_loop(shared, thread_proxy);
                     });
+                    state.runner_thread = Some(handle);
                 } else {
                     if let Some(ref shared) = state.runner_shared {
                         if let Ok(mut lock) = shared.lock() {
@@ -277,6 +343,9 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 if let Ok(mut lock) = shared.lock() {
                     lock.exit = true;
                 }
+            }
+            if let Some(handle) = state.runner_thread.take() {
+                let _ = handle.join();
             }
             crate::license::end_usage_session();
             window_target.exit();
@@ -426,31 +495,31 @@ fn draw_login(ui: &Ui, state: &mut UiState) {
         ui.modal_popup_config("login_popup")
             .always_auto_resize(true)
             .build(|| {
-            ui.set_next_item_width(220.0);
-            ui.input_text("License Key", &mut state.license_key).build();
-            if !state.login_notify.is_empty() {
-                ui.text(&state.login_notify);
-            }
-            if ui.button("Submit") {
-                let res = crate::license::verify_license_key(&state.license_key);
-                if res.valid {
-                    match crate::license::begin_usage_session(&state.license_key, &res) {
-                        Ok(_) => {
-                            let _ = crate::config::save_license_key(&state.license_key);
-                            state.logged_in = true;
-                            state.login_notify.clear();
-                            state.auth_notify = crate::license::format_user_info_for_ui(&res);
-                            ui.close_current_popup();
-                        }
-                        Err(e) => {
-                            state.login_notify = format!("Session error: {}", e);
-                        }
-                    }
-                } else {
-                    state.login_notify = res.message.clone();
+                ui.set_next_item_width(220.0);
+                ui.input_text("License Key", &mut state.license_key).build();
+                if !state.login_notify.is_empty() {
+                    ui.text(&state.login_notify);
                 }
-            }
-        });
+                if ui.button("Submit") {
+                    let res = crate::license::verify_license_key(&state.license_key);
+                    if res.valid {
+                        match crate::license::begin_usage_session(&state.license_key, &res) {
+                            Ok(_) => {
+                                let _ = crate::config::save_license_key(&state.license_key);
+                                state.logged_in = true;
+                                state.login_notify.clear();
+                                state.auth_notify = crate::license::format_user_info_for_ui(&res);
+                                ui.close_current_popup();
+                            }
+                            Err(e) => {
+                                state.login_notify = format!("Session error: {}", e);
+                            }
+                        }
+                    } else {
+                        state.login_notify = res.message.clone();
+                    }
+                }
+            });
     }
 }
 
@@ -462,6 +531,14 @@ fn draw_start_bar(ui: &Ui, state: &mut UiState) {
                 state.start_requested = true;
             }
             if ui.button("Exit") {
+                if let Some(ref shared) = state.runner_shared {
+                    if let Ok(mut lock) = shared.lock() {
+                        lock.exit = true;
+                    }
+                }
+                if let Some(handle) = state.runner_thread.take() {
+                    let _ = handle.join();
+                }
                 crate::license::end_usage_session();
                 std::process::exit(0);
             }
@@ -496,7 +573,7 @@ fn draw_basic_settings(ui: &Ui, state: &mut UiState) {
     }
     ui.input_int("Merge Distance", &mut state.config.merge_distance)
         .build();
-    
+
     let pause_label = if state.binding_target == Some(BindingTarget::Pause) {
         "Pause Keybind: Waiting for input...".to_string()
     } else {
@@ -693,13 +770,38 @@ fn draw_misc(ui: &Ui, state: &mut UiState) {
                 ui.text("No COM ports detected");
             } else {
                 let ports: Vec<&str> = state.com_ports.iter().map(String::as_str).collect();
-                ui.combo_simple_string("Arduino COM Port", &mut state.selected_com_port, &ports);
+                if ui.combo_simple_string("Arduino COM Port", &mut state.selected_com_port, &ports)
+                {
+                    if let Some(port) = state.com_ports.get(state.selected_com_port) {
+                        state.config.com_port = port.clone();
+                        let _ = crate::config::save_profile(
+                            &state.current_save_entry_name,
+                            &state.config,
+                        );
+                    }
+                }
             }
             if ui.button("Refresh COM ports") {
+                let preferred = state.config.com_port.clone();
                 state.com_ports = serialport::available_ports()
                     .map(|ports| ports.into_iter().map(|port| port.port_name).collect())
                     .unwrap_or_default();
-                state.selected_com_port = 0;
+                state.selected_com_port = state
+                    .com_ports
+                    .iter()
+                    .position(|port| port.eq_ignore_ascii_case(&preferred))
+                    .or_else(|| {
+                        state
+                            .com_ports
+                            .iter()
+                            .position(|port| port.eq_ignore_ascii_case("COM1"))
+                    })
+                    .unwrap_or(0);
+                if let Some(port) = state.com_ports.get(state.selected_com_port) {
+                    state.config.com_port = port.clone();
+                    let _ =
+                        crate::config::save_profile(&state.current_save_entry_name, &state.config);
+                }
             }
 
             let rates = vec!["125 Hz", "250 Hz", "500 Hz", "1000 Hz"];
@@ -724,12 +826,12 @@ fn draw_misc(ui: &Ui, state: &mut UiState) {
     TabBar::new("savehsvtabs").build(ui, || {
         TabItem::new("Save Current Config").build(ui, || {
             ui.text("Save program settings to entry");
-            
+
             if ui.button("Save") {
                 state.config.lines_color = float_to_rgb(state.lines_color);
                 state.config.fov_color = float_to_rgb(state.fov_color);
                 state.config.ui_color = float_to_rgb(state.ui_color);
-                
+
                 let name = state.current_save_entry_name.clone();
                 let name = name.trim();
                 if !name.is_empty() {
@@ -951,4 +1053,3 @@ mod tests {
         assert_eq!(get_vk_name(999), "VK_999");
     }
 }
-

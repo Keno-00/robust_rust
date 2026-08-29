@@ -722,7 +722,7 @@ pub fn check_trigger_color(
     let w_pl1 = w_pr / 2 - cut_width / 2;
     let w_pl2 = w_pl1 / 2 - cut_width / 2;
 
-    if w_pl2 <= 0 {
+    if w_pl2 == 0 {
         return false;
     }
 

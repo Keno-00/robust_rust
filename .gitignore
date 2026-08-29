@@ -6,3 +6,5 @@
 *.exp
 .idea/
 .vscode/
+license-server/node_modules/
+license-server/.wrangler/

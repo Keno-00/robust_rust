@@ -1,0 +1,17 @@
+{
+  "name": "verux-license-server",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply LICENSE_DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply LICENSE_DB --remote"
+    ,"discord:register": "node scripts/register-commands.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260827.1",
+    "typescript": "^5.9.2",
+    "wrangler": "^4.127.0"
+  }
+}

@@ -1,0 +1,36 @@
+name = "verux-license"
+main = "src/index.ts"
+compatibility_date = "2026-08-27"
+workers_dev = true
+preview_urls = false
+
+[vars]
+APP_ENABLED = "true"
+ALLOWED_PRODUCT_NAMES = "verux.apb"
+MIN_CLIENT_VERSION = "1.5.0"
+HEARTBEAT_INTERVAL_SECONDS = "45"
+SESSION_TTL_SECONDS = "120"
+DISCORD_ADMIN_USER_ID = "541193737758441472"
+DISCORD_APPLICATION_ID = "1194649064181088376"
+DISCORD_PUBLIC_KEY = "974067af8b308595f6f34a3989942c6a7a70ac3c024a629d6f92b281f8e41fc6"
+
+[[d1_databases]]
+binding = "LICENSE_DB"
+database_name = "verux-license"
+database_id = "218e697b-b904-48ff-96bf-f744a4c89f1e"
+migrations_dir = "migrations"
+
+[[ratelimits]]
+name = "ACTIVATION_RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
+
+[[ratelimits]]
+name = "SESSION_RATE_LIMITER"
+namespace_id = "1002"
+simple = { limit = 180, period = 60 }
+
+[[ratelimits]]
+name = "DISCORD_RATE_LIMITER"
+namespace_id = "1003"
+simple = { limit = 60, period = 60 }

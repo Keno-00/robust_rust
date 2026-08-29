@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 pub const ARDUINO_BAUD_RATE: u32 = 115_200;
-pub const DEFAULT_SERIAL_TIMEOUT: Duration = Duration::from_millis(0);
+pub const DEFAULT_SERIAL_TIMEOUT: Duration = Duration::from_millis(100);
 pub const SHOOT_COMMAND: &[u8] = b"shoot";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

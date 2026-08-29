@@ -1,35 +1,31 @@
-use std::collections::BTreeMap;
-use std::ptr;
-use std::sync::Mutex;
-use std::time::UNIX_EPOCH;
-use hmac::{Hmac, Mac};
-use sha2::{Sha256, Digest};
-use serde::{Serialize, Deserialize};
 use aes_gcm::{
     aead::{Aead, KeyInit, Payload},
     Aes256Gcm, Nonce,
 };
+use base64::Engine as _;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
+use std::ptr;
+use std::sync::Mutex;
+use std::time::UNIX_EPOCH;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{GetLastError, LocalFree, HLOCAL};
 use windows::Win32::Security::Cryptography::{
-    CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB,
-    BCryptGenRandom, BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+    BCryptGenRandom, CryptProtectData, CryptUnprotectData, BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+    CRYPT_INTEGER_BLOB,
 };
-use base64::Engine as _;
 
-type HmacSha256 = Hmac<Sha256>;
-
-pub const PAYHIP_VERIFY_URL: &str = "https://payhip.com/api/v2/license/verify";
-pub const OBFUSCATION_VERSION: u8 = 1;
 pub const SECONDS_PER_DAY: f64 = 24.0 * 60.0 * 60.0;
 pub const ROLLBACK_TOLERANCE_SECONDS: f64 = 5.0;
 pub const MAX_TAMPER_BEFORE_REVOKE: u32 = 3;
 pub const HEARTBEAT_MIN_INTERVAL_SECONDS: f64 = 1.0;
 pub const LEDGER_SCHEMA_VERSION: u32 = 2;
 pub const LEDGER_AAD: &[u8] = b"veruxapb-license-ledger-v2";
-
-const PRODUCT_SECRET_SALT_B64: &str = "QRRFpLsRirD1RB+NMG/nTQ==";
-const PRODUCT_SECRET_BLOB_B64: &str = "AQpUqccbEUlFTeVqqjkVgIR4W6/UIF24Xn1zXN2WhMz4fsAJcL15dofhjIDnH37ZXYQxQ0doyIWUdJHy5p45po2l0X38IQc=";
+pub const LICENSE_SERVER_URL: &str = match option_env!("VERUX_LICENSE_SERVER_URL") {
+    Some(value) => value,
+    None => "https://verux-license.verux-services.workers.dev",
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserInfo {
@@ -85,15 +81,17 @@ pub struct VerifyResponse {
     pub http_status: u16,
     pub user: Option<UserInfo>,
     pub usage: Option<UsageSnapshot>,
+    #[serde(default)]
+    pub session_token: String,
+    #[serde(default)]
+    pub heartbeat_interval_seconds: u64,
 }
 
 #[derive(Debug, Clone)]
 pub struct ActiveSession {
-    pub license_key: String,
-    pub tier: String,
-    pub bought_at_ts: f64,
-    pub last_wall: f64,
-    pub last_mono: std::time::Instant,
+    pub session_token: String,
+    pub sequence: u64,
+    pub heartbeat_interval_seconds: u64,
     pub last_heartbeat_mono: std::time::Instant,
 }
 
@@ -106,19 +104,22 @@ pub fn dpapi_protect(data: &[u8], description: &str) -> Result<Vec<u8>, String> 
         cbData: data.len() as u32,
         pbData: data.as_ptr() as *mut u8,
     };
-    
-    let desc_wide: Vec<u16> = description.encode_utf16().chain(std::iter::once(0)).collect();
-    
+
+    let desc_wide: Vec<u16> = description
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+
     let mut entropy = CRYPT_INTEGER_BLOB {
         cbData: LEDGER_AAD.len() as u32,
         pbData: LEDGER_AAD.as_ptr() as *mut u8,
     };
-    
+
     let mut data_out = CRYPT_INTEGER_BLOB {
         cbData: 0,
         pbData: ptr::null_mut(),
     };
-    
+
     unsafe {
         let ok = CryptProtectData(
             &mut data_in,
@@ -130,11 +131,15 @@ pub fn dpapi_protect(data: &[u8], description: &str) -> Result<Vec<u8>, String> 
             &mut data_out,
         );
         if ok.is_ok() {
-            let res = std::slice::from_raw_parts(data_out.pbData, data_out.cbData as usize).to_vec();
+            let res =
+                std::slice::from_raw_parts(data_out.pbData, data_out.cbData as usize).to_vec();
             let _ = LocalFree(HLOCAL(data_out.pbData as *mut std::ffi::c_void));
             Ok(res)
         } else {
-            Err(format!("CryptProtectData failed with code {:?}", GetLastError()))
+            Err(format!(
+                "CryptProtectData failed with code {:?}",
+                GetLastError()
+            ))
         }
     }
 }
@@ -144,17 +149,17 @@ pub fn dpapi_unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
         cbData: data.len() as u32,
         pbData: data.as_ptr() as *mut u8,
     };
-    
+
     let mut entropy = CRYPT_INTEGER_BLOB {
         cbData: LEDGER_AAD.len() as u32,
         pbData: LEDGER_AAD.as_ptr() as *mut u8,
     };
-    
+
     let mut data_out = CRYPT_INTEGER_BLOB {
         cbData: 0,
         pbData: ptr::null_mut(),
     };
-    
+
     unsafe {
         let ok = CryptUnprotectData(
             &mut data_in,
@@ -166,11 +171,15 @@ pub fn dpapi_unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
             &mut data_out,
         );
         if ok.is_ok() {
-            let res = std::slice::from_raw_parts(data_out.pbData, data_out.cbData as usize).to_vec();
+            let res =
+                std::slice::from_raw_parts(data_out.pbData, data_out.cbData as usize).to_vec();
             let _ = LocalFree(HLOCAL(data_out.pbData as *mut std::ffi::c_void));
             Ok(res)
         } else {
-            Err(format!("CryptUnprotectData failed with code {:?}", GetLastError()))
+            Err(format!(
+                "CryptUnprotectData failed with code {:?}",
+                GetLastError()
+            ))
         }
     }
 }
@@ -179,11 +188,7 @@ pub fn dpapi_unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
 
 pub fn generate_random_bytes(buf: &mut [u8]) -> Result<(), String> {
     unsafe {
-        let status = BCryptGenRandom(
-            None,
-            buf,
-            BCRYPT_USE_SYSTEM_PREFERRED_RNG,
-        );
+        let status = BCryptGenRandom(None, buf, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
         if status.is_err() {
             return Err(format!("BCryptGenRandom failed: {:?}", status));
         }
@@ -193,39 +198,52 @@ pub fn generate_random_bytes(buf: &mut [u8]) -> Result<(), String> {
 
 // --- AES-GCM Encryption Helpers ---
 
-pub fn aes_encrypt(key: &[u8], nonce: &[u8], plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, String> {
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| format!("AES GCM key init error: {}", e))?;
+pub fn aes_encrypt(
+    key: &[u8],
+    nonce: &[u8],
+    plaintext: &[u8],
+    aad: &[u8],
+) -> Result<Vec<u8>, String> {
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| format!("AES GCM key init error: {}", e))?;
     let nonce_ref = Nonce::from_slice(nonce);
     let payload = Payload {
         msg: plaintext,
         aad,
     };
-    cipher.encrypt(nonce_ref, payload)
+    cipher
+        .encrypt(nonce_ref, payload)
         .map_err(|e| format!("AES GCM encrypt error: {}", e))
 }
 
-pub fn aes_decrypt(key: &[u8], nonce: &[u8], ciphertext: &[u8], aad: &[u8]) -> Result<Vec<u8>, String> {
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| format!("AES GCM key init error: {}", e))?;
+pub fn aes_decrypt(
+    key: &[u8],
+    nonce: &[u8],
+    ciphertext: &[u8],
+    aad: &[u8],
+) -> Result<Vec<u8>, String> {
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| format!("AES GCM key init error: {}", e))?;
     let nonce_ref = Nonce::from_slice(nonce);
     let payload = Payload {
         msg: ciphertext,
         aad,
     };
-    cipher.decrypt(nonce_ref, payload)
+    cipher
+        .decrypt(nonce_ref, payload)
         .map_err(|e| format!("AES GCM decrypt error: {}", e))
 }
 
 // --- Path Resolvers ---
 
 pub fn get_secure_storage_dir() -> std::path::PathBuf {
-    let base = std::env::var("LOCALAPPDATA")
-        .unwrap_or_else(|_| {
-            let home = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\".to_string());
-            format!("{}\\AppData\\Local", home)
-        });
-    std::path::PathBuf::from(base).join("VeruxAPB").join("secure")
+    let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {
+        let home = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\".to_string());
+        format!("{}\\AppData\\Local", home)
+    });
+    std::path::PathBuf::from(base)
+        .join("VeruxAPB")
+        .join("secure")
 }
 
 // --- Ledger Digest Calculation ---
@@ -233,16 +251,16 @@ pub fn get_secure_storage_dir() -> std::path::PathBuf {
 pub fn ledger_digest(payload: &LedgerPayload) -> Result<String, String> {
     let mut temp = payload.clone();
     temp.state_digest = String::new();
-    
-    let serialized = serde_json::to_string(&temp)
-        .map_err(|e| format!("Failed to serialize ledger: {}", e))?;
-    
+
+    let serialized =
+        serde_json::to_string(&temp).map_err(|e| format!("Failed to serialize ledger: {}", e))?;
+
     let map: BTreeMap<String, serde_json::Value> = serde_json::from_str(&serialized)
         .map_err(|e| format!("Failed to parse JSON map: {}", e))?;
-    
+
     let compact = serde_json::to_string(&map)
         .map_err(|e| format!("Failed to serialize sorted ledger: {}", e))?;
-        
+
     let mut hasher = Sha256::new();
     hasher.update(compact.as_bytes());
     let result = hasher.finalize();
@@ -255,10 +273,10 @@ pub fn read_secure_ledger() -> Result<LedgerPayload, String> {
     let secure_dir = get_secure_storage_dir();
     let key_path = secure_dir.join("ledger.key");
     let state_path = secure_dir.join("ledger.state");
-    
+
     let key = if key_path.exists() {
-        let wrapped = std::fs::read(&key_path)
-            .map_err(|e| format!("Failed to read ledger key: {}", e))?;
+        let wrapped =
+            std::fs::read(&key_path).map_err(|e| format!("Failed to read ledger key: {}", e))?;
         dpapi_unprotect(&wrapped)?
     } else {
         let mut new_key = [0u8; 32];
@@ -270,11 +288,11 @@ pub fn read_secure_ledger() -> Result<LedgerPayload, String> {
             .map_err(|e| format!("Failed to write ledger key: {}", e))?;
         new_key.to_vec()
     };
-    
+
     if key.len() != 32 {
         return Err(format!("Invalid ledger key size: {}", key.len()));
     }
-    
+
     if !state_path.exists() {
         let now = std::time::SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -297,77 +315,82 @@ pub fn read_secure_ledger() -> Result<LedgerPayload, String> {
         write_secure_ledger(&payload, &key)?;
         return Ok(payload);
     }
-    
-    let wrapped_state = std::fs::read(&state_path)
-        .map_err(|e| format!("Failed to read ledger state: {}", e))?;
-    
+
+    let wrapped_state =
+        std::fs::read(&state_path).map_err(|e| format!("Failed to read ledger state: {}", e))?;
+
     let unwrapped_bytes = dpapi_unprotect(&wrapped_state)?;
-    
+
     let envelope: LedgerEnvelope = serde_json::from_slice(&unwrapped_bytes)
         .map_err(|e| format!("Failed to parse ledger envelope: {}", e))?;
-        
-    let nonce = base64::engine::general_purpose::STANDARD.decode(&envelope.nonce)
+
+    let nonce = base64::engine::general_purpose::STANDARD
+        .decode(&envelope.nonce)
         .map_err(|e| format!("Failed to decode nonce: {}", e))?;
-        
-    let ciphertext = base64::engine::general_purpose::STANDARD.decode(&envelope.ciphertext)
+
+    let ciphertext = base64::engine::general_purpose::STANDARD
+        .decode(&envelope.ciphertext)
         .map_err(|e| format!("Failed to decode ciphertext: {}", e))?;
-        
+
     let plaintext = aes_decrypt(&key, &nonce, &ciphertext, LEDGER_AAD)?;
-    
+
     let payload: LedgerPayload = serde_json::from_slice(&plaintext)
         .map_err(|e| format!("Failed to parse ledger payload: {}", e))?;
-        
+
     let recorded_digest = payload.state_digest.clone();
     let expected_digest = ledger_digest(&payload)?;
-    
+
     if recorded_digest != expected_digest {
         return Err("License ledger digest mismatch".to_string());
     }
-    
+
     Ok(payload)
 }
 
 pub fn write_secure_ledger(payload: &LedgerPayload, key: &[u8]) -> Result<(), String> {
     let secure_dir = get_secure_storage_dir();
     let state_path = secure_dir.join("ledger.state");
-    
+
     let mut new_payload = payload.clone();
     new_payload.schema = LEDGER_SCHEMA_VERSION;
     new_payload.state_digest = String::new();
     new_payload.state_digest = ledger_digest(&new_payload)?;
-    
+
     let plaintext = serde_json::to_vec(&new_payload)
         .map_err(|e| format!("Failed to serialize ledger: {}", e))?;
-        
+
     let mut nonce = [0u8; 12];
     generate_random_bytes(&mut nonce)?;
-    
+
     let ciphertext = aes_encrypt(key, &nonce, &plaintext, LEDGER_AAD)?;
-    
+
     let envelope = LedgerEnvelope {
         schema: LEDGER_SCHEMA_VERSION,
         nonce: base64::engine::general_purpose::STANDARD.encode(&nonce),
         ciphertext: base64::engine::general_purpose::STANDARD.encode(&ciphertext),
     };
-    
+
     let envelope_bytes = serde_json::to_vec(&envelope)
         .map_err(|e| format!("Failed to serialize envelope: {}", e))?;
-        
+
     let wrapped = dpapi_protect(&envelope_bytes, "VeruxAPB License Ledger State")?;
-    
+
     let tmp_path = secure_dir.join("ledger.state.tmp");
     std::fs::create_dir_all(&secure_dir)
         .map_err(|e| format!("Failed to create secure storage dir: {}", e))?;
     std::fs::write(&tmp_path, &wrapped)
         .map_err(|e| format!("Failed to write tmp ledger state: {}", e))?;
-        
+
     std::fs::rename(&tmp_path, &state_path)
         .map_err(|e| format!("Failed to rename ledger state: {}", e))?;
-        
+
     Ok(())
 }
 
-pub fn migrate_legacy_usage_fields(fingerprint: &str, ledger: &mut LedgerPayload) -> Result<(), String> {
+pub fn migrate_legacy_usage_fields(
+    fingerprint: &str,
+    ledger: &mut LedgerPayload,
+) -> Result<(), String> {
     let login_path = crate::config::get_login_path();
     if !login_path.exists() {
         return Ok(());
@@ -381,23 +404,38 @@ pub fn migrate_legacy_usage_fields(fingerprint: &str, ledger: &mut LedgerPayload
         Some(s) => s,
         None => return Ok(()),
     };
-    
-    let legacy_fingerprint = section.get("license_fingerprint").cloned().unwrap_or_default();
+
+    let legacy_fingerprint = section
+        .get("license_fingerprint")
+        .cloned()
+        .unwrap_or_default();
     if !legacy_fingerprint.is_empty() && legacy_fingerprint == fingerprint {
-        if let Some(used) = section.get("used_seconds").and_then(|s| s.parse::<f64>().ok()) {
+        if let Some(used) = section
+            .get("used_seconds")
+            .and_then(|s| s.parse::<f64>().ok())
+        {
             ledger.used_seconds = used;
         }
-        if let Some(sessions) = section.get("session_count").and_then(|s| s.parse::<u32>().ok()) {
+        if let Some(sessions) = section
+            .get("session_count")
+            .and_then(|s| s.parse::<u32>().ok())
+        {
             ledger.session_count = sessions;
         }
-        if let Some(tamper) = section.get("tamper_count").and_then(|s| s.parse::<u32>().ok()) {
+        if let Some(tamper) = section
+            .get("tamper_count")
+            .and_then(|s| s.parse::<u32>().ok())
+        {
             ledger.tamper_count = tamper;
         }
-        if let Some(update) = section.get("last_runtime_update_unix").and_then(|s| s.parse::<f64>().ok()) {
+        if let Some(update) = section
+            .get("last_runtime_update_unix")
+            .and_then(|s| s.parse::<f64>().ok())
+        {
             ledger.last_runtime_update_unix = update;
         }
     }
-    
+
     let legacy_keys = [
         "license_fingerprint",
         "license_tier",
@@ -414,103 +452,12 @@ pub fn migrate_legacy_usage_fields(fingerprint: &str, ledger: &mut LedgerPayload
             removed = true;
         }
     }
-    
+
     if removed {
         let serialized = ini.serialize();
         let _ = std::fs::write(&login_path, serialized);
     }
     Ok(())
-}
-
-// --- Product Secret Decryption ---
-
-pub fn reveal_product_secret() -> Result<String, String> {
-    let salt = base64::engine::general_purpose::STANDARD.decode(PRODUCT_SECRET_SALT_B64)
-        .map_err(|e| format!("Base64 salt decode failed: {}", e))?;
-        
-    let blob = base64::engine::general_purpose::STANDARD.decode(PRODUCT_SECRET_BLOB_B64)
-        .map_err(|e| format!("Base64 blob decode failed: {}", e))?;
-        
-    if blob.len() < 1 + 16 {
-        return Err("Invalid obfuscated secret payload length".to_string());
-    }
-    
-    let version = blob[0];
-    if version != OBFUSCATION_VERSION {
-        return Err("Unsupported obfuscation version".to_string());
-    }
-    
-    let masked = &blob[1..blob.len()-16];
-    let tag = &blob[blob.len()-16..];
-    
-    let mut stream_key = vec![0u8; masked.len()];
-    let mut mac_key = vec![0u8; 32];
-    
-    pbkdf2::pbkdf2_hmac::<Sha256>(
-        &salt,
-        b"payhip-obf-stream-v1",
-        120_000,
-        &mut stream_key,
-    );
-    
-    pbkdf2::pbkdf2_hmac::<Sha256>(
-        &salt,
-        b"payhip-obf-mac-v1",
-        120_000,
-        &mut mac_key,
-    );
-    
-    let mut mac = <HmacSha256 as hmac::Mac>::new_from_slice(&mac_key)
-        .map_err(|e| format!("HMAC init failed: {}", e))?;
-    mac.update(&[version]);
-    mac.update(masked);
-    let expected_tag = mac.finalize().into_bytes();
-    let expected_tag_16 = &expected_tag[..16];
-    
-    if tag != expected_tag_16 {
-        return Err("Secret integrity check failed".to_string());
-    }
-    
-    let mut secret = vec![0u8; masked.len()];
-    for idx in 0..masked.len() {
-        secret[idx] = masked[idx] ^ stream_key[idx];
-    }
-    
-    String::from_utf8(secret).map_err(|e| format!("Invalid UTF-8 secret: {}", e))
-}
-
-// --- Payhip HTTP Request ---
-
-pub fn http_verify_request(license_key: &str, product_secret: &str) -> Result<(u16, String), String> {
-    let url = format!("https://payhip.com/api/v2/license/verify?license_key={}", license_key);
-    
-    let resp = ureq::get(&url)
-        .set("Accept", "application/json, text/plain, */*")
-        .set("Accept-Language", "en-US,en;q=0.9")
-        .set("Cache-Control", "no-cache")
-        .set("Pragma", "no-cache")
-        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-        .set("Referer", "https://payhip.com/")
-        .set("Origin", "https://payhip.com")
-        .set("product-secret-key", product_secret)
-        .call();
-        
-    match resp {
-        Ok(response) => {
-            let status = response.status();
-            let body = response.into_string()
-                .map_err(|e| format!("Failed to read response body: {}", e))?;
-            Ok((status, body))
-        }
-        Err(ureq::Error::Status(code, response)) => {
-            let body = response.into_string()
-                .map_err(|e| format!("Failed to read error response body: {}", e))?;
-            Ok((code, body))
-        }
-        Err(e) => {
-            Err(format!("Network error: {}", e))
-        }
-    }
 }
 
 // --- JSON Parsing & Variant Inference Helpers ---
@@ -540,34 +487,36 @@ pub fn collect_strings(val: &serde_json::Value, bucket: &mut Vec<String>) {
 fn match_tier_rule(text: &str, days: u32) -> bool {
     let lower = text.to_lowercase();
     let search_str = days.to_string();
-    
+
     let mut pos = 0;
     while let Some(idx) = lower[pos..].find(&search_str) {
         let absolute_idx = pos + idx;
-        
+
         let preceded_by_digit = if absolute_idx > 0 {
             lower.as_bytes()[absolute_idx - 1].is_ascii_digit()
         } else {
             false
         };
-        
+
         if !preceded_by_digit {
             let mut remaining = &lower[absolute_idx + search_str.len()..];
-            remaining = remaining.trim_start_matches(|c: char| c.is_whitespace() || c == '.' || c == '_' || c == '-');
-            
+            remaining = remaining.trim_start_matches(|c: char| {
+                c.is_whitespace() || c == '.' || c == '_' || c == '-'
+            });
+
             if remaining.starts_with("day") {
                 let after_day = if remaining.starts_with("days") {
                     &remaining[4..]
                 } else {
                     &remaining[3..]
                 };
-                
+
                 let followed_by_digit = if let Some(first_char) = after_day.chars().next() {
                     first_char.is_ascii_digit()
                 } else {
                     false
                 };
-                
+
                 if !followed_by_digit {
                     return true;
                 }
@@ -589,14 +538,14 @@ fn match_lifetime(text: &str) -> bool {
         } else {
             true
         };
-        
+
         let end_boundary = if absolute_idx + 8 < lower.len() {
             let next = lower.as_bytes()[absolute_idx + 8];
             !next.is_ascii_alphanumeric() && next != b'_'
         } else {
             true
         };
-        
+
         if start_boundary && end_boundary {
             return true;
         }
@@ -608,7 +557,7 @@ fn match_lifetime(text: &str) -> bool {
 pub fn infer_variant(result_payload: &serde_json::Value, user: &UserInfo) -> Option<String> {
     let mut strings = Vec::new();
     collect_strings(result_payload, &mut strings);
-    
+
     if !user.product_name.is_empty() {
         strings.push(user.product_name.clone());
     }
@@ -618,7 +567,7 @@ pub fn infer_variant(result_payload: &serde_json::Value, user: &UserInfo) -> Opt
     if !user.expiry.is_empty() {
         strings.push(user.expiry.clone());
     }
-    
+
     for text in &strings {
         if match_tier_rule(text, 30) {
             return Some("30.days".to_string());
@@ -641,7 +590,7 @@ pub fn parse_timestamp(text: &str) -> Option<f64> {
     if candidate.is_empty() {
         return None;
     }
-    
+
     if candidate.chars().all(|c| c.is_ascii_digit()) {
         if let Ok(val) = candidate.parse::<u64>() {
             if val > 10_000_000_000 {
@@ -650,28 +599,31 @@ pub fn parse_timestamp(text: &str) -> Option<f64> {
             return Some(val as f64);
         }
     }
-    
-    let normalized = candidate.replace('/', "-").replace('T', " ").replace('Z', " +00:00");
-    
+
+    let normalized = candidate
+        .replace('/', "-")
+        .replace('T', " ")
+        .replace('Z', " +00:00");
+
     let parts: Vec<&str> = normalized.split_whitespace().collect();
     if parts.is_empty() {
         return None;
     }
-    
+
     let date_part = parts[0];
     let date_split: Vec<&str> = date_part.split('-').collect();
     if date_split.len() < 3 {
         return None;
     }
-    
+
     let year = date_split[0].parse::<i32>().ok()?;
     let month = date_split[1].parse::<i32>().ok()?;
     let day = date_split[2].parse::<i32>().ok()?;
-    
+
     let mut hour = 0;
     let mut min = 0;
     let mut sec = 0;
-    
+
     if parts.len() > 1 {
         let time_part = parts[1];
         let time_only = time_part.split('+').next()?.split('-').next()?;
@@ -684,18 +636,19 @@ pub fn parse_timestamp(text: &str) -> Option<f64> {
             }
         }
     }
-    
+
     let y = if month <= 2 { year - 1 } else { year };
     let m = if month <= 2 { month + 12 } else { month };
-    
+
     let era = (if y >= 0 { y } else { y - 399 }) / 400;
     let y_in_era = y - era * 400;
     let doy = (153 * (m - 3) + 2) / 5 + day - 1;
     let doe = y_in_era * 365 + y_in_era / 4 - y_in_era / 100 + doy;
     let days = era * 146097 + doe - 719468;
-    
-    let mut seconds = (days as i64) * 86400 + (hour as i64) * 3600 + (min as i64) * 60 + (sec as i64);
-    
+
+    let mut seconds =
+        (days as i64) * 86400 + (hour as i64) * 3600 + (min as i64) * 60 + (sec as i64);
+
     if parts.len() > 1 && parts[1].contains('+') {
         if let Some(tz_part) = parts[1].split('+').nth(1) {
             let tz_split: Vec<&str> = tz_part.split(':').collect();
@@ -725,16 +678,13 @@ pub fn parse_timestamp(text: &str) -> Option<f64> {
             }
         }
     }
-    
+
     Some(seconds as f64)
 }
 
 pub fn pick_purchase_timestamp(payload: &serde_json::Value, user: &UserInfo) -> f64 {
-    let mut candidates = vec![
-        user.bought_at.clone(),
-        user.expiry.clone(),
-    ];
-    
+    let mut candidates = vec![user.bought_at.clone(), user.expiry.clone()];
+
     if let Some(date) = payload.get("date").and_then(|v| v.as_str()) {
         candidates.push(date.to_string());
     }
@@ -744,21 +694,27 @@ pub fn pick_purchase_timestamp(payload: &serde_json::Value, user: &UserInfo) -> 
     if let Some(purchased) = payload.get("purchased_at").and_then(|v| v.as_str()) {
         candidates.push(purchased.to_string());
     }
-    
+
     if let Some(data) = payload.get("data").and_then(|v| v.as_object()) {
-        for key in &["date", "created_at", "purchased_at", "purchase_date", "ordered_at"] {
+        for key in &[
+            "date",
+            "created_at",
+            "purchased_at",
+            "purchase_date",
+            "ordered_at",
+        ] {
             if let Some(val) = data.get(*key).and_then(|v| v.as_str()) {
                 candidates.push(val.to_string());
             }
         }
     }
-    
+
     for candidate in candidates {
         if let Some(ts) = parse_timestamp(&candidate) {
             return ts;
         }
     }
-    
+
     std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -767,7 +723,7 @@ pub fn pick_purchase_timestamp(payload: &serde_json::Value, user: &UserInfo) -> 
 
 pub fn extract_user_info(payload: &serde_json::Value, fallback_key: &str) -> UserInfo {
     let data = payload.get("data").and_then(|v| v.as_object());
-    
+
     let pick = |keys: &[&str]| -> String {
         for &key in keys {
             if let Some(d) = data {
@@ -793,15 +749,27 @@ pub fn extract_user_info(payload: &serde_json::Value, fallback_key: &str) -> Use
         }
         String::new()
     };
-    
-    let name = pick(&["customer_name", "buyer_name", "name", "full_name", "customer"]);
+
+    let name = pick(&[
+        "customer_name",
+        "buyer_name",
+        "name",
+        "full_name",
+        "customer",
+    ]);
     let email = pick(&["customer_email", "buyer_email", "email"]);
     let expiry = pick(&["expires_at", "expiry", "expiration", "license_expires_at"]);
     let status = pick(&["status", "license_status", "state"]);
     let product_name = pick(&["product_name", "product", "plan_name", "variant"]);
-    let bought_at = pick(&["purchased_at", "purchase_date", "created_at", "date", "ordered_at"]);
+    let bought_at = pick(&[
+        "purchased_at",
+        "purchase_date",
+        "created_at",
+        "date",
+        "ordered_at",
+    ]);
     let license_key = pick(&["license_key", "key"]);
-    
+
     UserInfo {
         name,
         email,
@@ -809,7 +777,11 @@ pub fn extract_user_info(payload: &serde_json::Value, fallback_key: &str) -> Use
         status,
         product_name,
         bought_at,
-        license_key: if license_key.is_empty() { fallback_key.to_string() } else { license_key },
+        license_key: if license_key.is_empty() {
+            fallback_key.to_string()
+        } else {
+            license_key
+        },
     }
 }
 
@@ -838,7 +810,7 @@ pub fn format_seconds(seconds: Option<f64>) -> String {
     let hours = rem / 3600;
     let rem = rem % 3600;
     let minutes = rem / 60;
-    
+
     if days > 0 {
         format!("{}d {}h {}m", days, hours, minutes)
     } else if hours > 0 {
@@ -848,12 +820,17 @@ pub fn format_seconds(seconds: Option<f64>) -> String {
     }
 }
 
-pub fn build_usage_snapshot(license_key: &str, tier: &str, bought_at_ts: f64, ledger: &LedgerPayload) -> UsageSnapshot {
+pub fn build_usage_snapshot(
+    license_key: &str,
+    tier: &str,
+    bought_at_ts: f64,
+    ledger: &LedgerPayload,
+) -> UsageSnapshot {
     let entitlement_seconds = get_tier_seconds(tier);
     let used_seconds = ledger.used_seconds;
     let remaining_seconds = entitlement_seconds.map(|ent| (ent - used_seconds).max(0.0));
     let valid = remaining_seconds.map(|rem| rem > 0.0).unwrap_or(true);
-    
+
     UsageSnapshot {
         license_key: license_key.trim().to_string(),
         tier: tier.to_string(),
@@ -876,37 +853,45 @@ pub struct UsagePolicyResult {
     pub usage: Option<UsageSnapshot>,
 }
 
-pub fn apply_usage_policy(license_key: &str, payload: &serde_json::Value, user: &UserInfo) -> UsagePolicyResult {
+pub fn apply_usage_policy(
+    license_key: &str,
+    payload: &serde_json::Value,
+    user: &UserInfo,
+) -> UsagePolicyResult {
     let tier = match infer_variant(payload, user) {
         Some(t) => t,
-        None => return UsagePolicyResult {
-            valid: false,
-            status: "unknown_variation".to_string(),
-            message: "Unable to determine product variation for this license.".to_string(),
-            usage: None,
-        },
+        None => {
+            return UsagePolicyResult {
+                valid: false,
+                status: "unknown_variation".to_string(),
+                message: "Unable to determine product variation for this license.".to_string(),
+                usage: None,
+            }
+        }
     };
-    
+
     let bought_at_ts = pick_purchase_timestamp(payload, user);
     let fingerprint = license_fingerprint(license_key);
-    
+
     let mut ledger = match read_secure_ledger() {
         Ok(l) => l,
-        Err(_) => return UsagePolicyResult {
-            valid: false,
-            status: "ledger_error".to_string(),
-            message: "Secure license storage could not be verified.".to_string(),
-            usage: None,
-        },
+        Err(_) => {
+            return UsagePolicyResult {
+                valid: false,
+                status: "ledger_error".to_string(),
+                message: "Secure license storage could not be verified.".to_string(),
+                usage: None,
+            }
+        }
     };
-    
+
     let _ = migrate_legacy_usage_fields(&fingerprint, &mut ledger);
-    
+
     let now = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs_f64();
-        
+
     if ledger.license_fingerprint != fingerprint {
         ledger.license_fingerprint = fingerprint;
         ledger.license_tier = tier.clone();
@@ -916,22 +901,27 @@ pub fn apply_usage_policy(license_key: &str, payload: &serde_json::Value, user: 
         ledger.tamper_count = 0;
         ledger.last_runtime_update_unix = now;
     }
-    
+
     ledger.license_tier = tier.clone();
     ledger.last_verified_unix = now;
-    
+
     let secure_dir = get_secure_storage_dir();
     let key_path = secure_dir.join("ledger.key");
-    let key = match std::fs::read(&key_path).map_err(|e| e.to_string()).and_then(|wrapped| dpapi_unprotect(&wrapped)) {
+    let key = match std::fs::read(&key_path)
+        .map_err(|e| e.to_string())
+        .and_then(|wrapped| dpapi_unprotect(&wrapped))
+    {
         Ok(k) => k,
-        Err(_) => return UsagePolicyResult {
-            valid: false,
-            status: "ledger_error".to_string(),
-            message: "Secure license storage could not be verified.".to_string(),
-            usage: None,
-        },
+        Err(_) => {
+            return UsagePolicyResult {
+                valid: false,
+                status: "ledger_error".to_string(),
+                message: "Secure license storage could not be verified.".to_string(),
+                usage: None,
+            }
+        }
     };
-    
+
     if let Err(_) = write_secure_ledger(&ledger, &key) {
         return UsagePolicyResult {
             valid: false,
@@ -940,7 +930,7 @@ pub fn apply_usage_policy(license_key: &str, payload: &serde_json::Value, user: 
             usage: None,
         };
     }
-    
+
     let snapshot = build_usage_snapshot(license_key, &tier, ledger.bought_at_ts, &ledger);
     if !snapshot.valid {
         return UsagePolicyResult {
@@ -950,7 +940,7 @@ pub fn apply_usage_policy(license_key: &str, payload: &serde_json::Value, user: 
             usage: Some(snapshot),
         };
     }
-    
+
     UsagePolicyResult {
         valid: true,
         status: "valid".to_string(),
@@ -965,323 +955,233 @@ pub fn license_fingerprint(license_key: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-// --- Main Verification Endpoint ---
+// --- Online license server client ---
+
+#[derive(Debug, Deserialize)]
+struct ServerUsage {
+    tier: String,
+    used_seconds: f64,
+    entitlement_seconds: Option<f64>,
+    remaining_seconds: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ServerResponse {
+    #[serde(default)]
+    valid: bool,
+    #[serde(default)]
+    message: String,
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    session_token: String,
+    #[serde(default)]
+    heartbeat_interval_seconds: u64,
+    user: Option<UserInfo>,
+    usage: Option<ServerUsage>,
+}
+
+fn failed_response(status: &str, message: String, http_status: u16) -> VerifyResponse {
+    VerifyResponse {
+        valid: false,
+        message,
+        status: status.to_string(),
+        http_status,
+        user: None,
+        usage: None,
+        session_token: String::new(),
+        heartbeat_interval_seconds: 0,
+    }
+}
+
+fn install_id() -> Result<String, String> {
+    let secure_dir = get_secure_storage_dir();
+    std::fs::create_dir_all(&secure_dir)
+        .map_err(|e| format!("Unable to create secure storage: {}", e))?;
+    let path = secure_dir.join("install.id");
+    if path.exists() {
+        let wrapped =
+            std::fs::read(&path).map_err(|e| format!("Unable to read install identity: {}", e))?;
+        let raw = dpapi_unprotect(&wrapped)?;
+        return Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw));
+    }
+    let mut raw = [0u8; 32];
+    generate_random_bytes(&mut raw)?;
+    let wrapped = dpapi_protect(&raw, "Verux Installation Identity")?;
+    std::fs::write(&path, wrapped)
+        .map_err(|e| format!("Unable to save install identity: {}", e))?;
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw))
+}
+
+fn server_request(path: &str, body: serde_json::Value) -> Result<(u16, ServerResponse), String> {
+    let origin = LICENSE_SERVER_URL.trim();
+    if origin.is_empty() {
+        return Err("This build has no license server configured.".to_string());
+    }
+    if !origin.starts_with("https://") {
+        return Err("License server must use HTTPS.".to_string());
+    }
+    let url = format!(
+        "{}/{}",
+        origin.trim_end_matches('/'),
+        path.trim_start_matches('/')
+    );
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(8))
+        .timeout_read(std::time::Duration::from_secs(12))
+        .timeout_write(std::time::Duration::from_secs(8))
+        .build();
+    let serialized = serde_json::to_string(&body)
+        .map_err(|error| format!("Unable to encode license request: {}", error))?;
+    let response = agent
+        .post(&url)
+        .set("Accept", "application/json")
+        .set("Content-Type", "application/json")
+        .set("User-Agent", concat!("Verux/", env!("CARGO_PKG_VERSION")))
+        .send_string(&serialized);
+    let (status, text) = match response {
+        Ok(response) => {
+            let status = response.status();
+            let text = response
+                .into_string()
+                .map_err(|e| format!("Unable to read license response: {}", e))?;
+            (status, text)
+        }
+        Err(ureq::Error::Status(status, response)) => {
+            let text = response
+                .into_string()
+                .map_err(|e| format!("Unable to read license error: {}", e))?;
+            (status, text)
+        }
+        Err(error) => return Err(format!("Unable to contact license server: {}", error)),
+    };
+    let parsed = serde_json::from_str::<ServerResponse>(&text).map_err(|_| {
+        format!(
+            "License server returned an invalid response (HTTP {}).",
+            status
+        )
+    })?;
+    Ok((status, parsed))
+}
+
+fn map_server_response(status_code: u16, response: ServerResponse) -> VerifyResponse {
+    let usage = response.usage.map(|item| UsageSnapshot {
+        license_key: String::new(),
+        tier: item.tier,
+        bought_at_ts: 0.0,
+        used_seconds: item.used_seconds,
+        entitlement_seconds: item.entitlement_seconds,
+        remaining_seconds: item.remaining_seconds,
+        remaining_text: format_seconds(item.remaining_seconds),
+        used_text: format_seconds(Some(item.used_seconds)),
+        valid: item
+            .remaining_seconds
+            .map(|seconds| seconds > 0.0)
+            .unwrap_or(true),
+    });
+    VerifyResponse {
+        valid: response.valid,
+        message: response.message,
+        status: response.status,
+        http_status: status_code,
+        user: response.user,
+        usage,
+        session_token: response.session_token,
+        heartbeat_interval_seconds: response.heartbeat_interval_seconds,
+    }
+}
 
 pub fn verify_license_key(license_key: &str) -> VerifyResponse {
     let key = license_key.trim();
     if key.is_empty() {
-        return VerifyResponse {
-            valid: false,
-            message: "Please enter a license key.".to_string(),
-            status: "invalid_input".to_string(),
-            http_status: 0,
-            user: None,
-            usage: None,
-        };
+        return failed_response(
+            "invalid_input",
+            "Please enter a license key.".to_string(),
+            0,
+        );
     }
-    
-    let secret_val = match reveal_product_secret() {
-        Ok(s) => s,
-        Err(e) => {
-            return VerifyResponse {
-                valid: false,
-                message: format!("Decryption failed: {}", e),
-                status: "decryption_error".to_string(),
-                http_status: 0,
-                user: None,
-                usage: None,
-            };
-        }
+    let install = match install_id() {
+        Ok(value) => value,
+        Err(error) => return failed_response("device_error", error, 0),
     };
-    
-    let (status_code, body_text) = match http_verify_request(key, &secret_val) {
-        Ok(res) => res,
-        Err(e) => {
-            return VerifyResponse {
-                valid: false,
-                message: format!("Network error while verifying license: {}", e),
-                status: "network_error".to_string(),
-                http_status: 0,
-                user: None,
-                usage: None,
-            };
-        }
-    };
-    
-    let lower_body = body_text.to_lowercase();
-    let cloudflare_signals = lower_body.contains("cloudflare")
-        || lower_body.contains("cf-ray")
-        || lower_body.contains("attention required")
-        || lower_body.contains("just a moment")
-        || lower_body.contains("captcha");
-        
-    if cloudflare_signals && (status_code == 403 || status_code == 429 || status_code == 503) {
-        return VerifyResponse {
-            valid: false,
-            message: "Verification blocked by Cloudflare. Please try again in a moment.".to_string(),
-            status: "cloudflare_blocked".to_string(),
-            http_status: status_code,
-            user: None,
-            usage: None,
-        };
-    }
-    
-    let payload: serde_json::Value = match serde_json::from_str(&body_text) {
-        Ok(p) => p,
-        Err(_) => serde_json::Value::Null,
-    };
-    
-    let source = payload.get("data").unwrap_or(&payload);
-    
-    if status_code >= 400 {
-        let message = payload.get("message")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        return VerifyResponse {
-            valid: false,
-            message: if message.is_empty() { format!("Payhip verification failed with HTTP {}.", status_code) } else { message },
-            status: "http_error".to_string(),
-            http_status: status_code,
-            user: None,
-            usage: None,
-        };
-    }
-    
-    let user = extract_user_info(&payload, key);
-    
-    let payload_valid = payload.get("valid")
-        .or_else(|| payload.get("success"))
-        .or_else(|| source.get("enabled"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-        
-    let normalized_status = source.get("status")
-        .or_else(|| payload.get("status"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_lowercase();
-        
-    let enabled_flag = source.get("enabled").and_then(|v| v.as_bool());
-    
-    if enabled_flag == Some(false) || normalized_status == "disabled" || normalized_status == "inactive" || normalized_status == "revoked" {
-        let message = payload.get("message")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        return VerifyResponse {
-            valid: false,
-            message: if message.is_empty() { "This license key is disabled.".to_string() } else { message },
-            status: "disabled_key".to_string(),
-            http_status: status_code,
-            user: Some(user),
-            usage: None,
-        };
-    }
-    
-    let returned_key = source.get("license_key")
-        .or_else(|| payload.get("license_key"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string();
-        
-    if !returned_key.is_empty() && returned_key != key {
-        return VerifyResponse {
-            valid: false,
-            message: "License key mismatch returned by verification service.".to_string(),
-            status: "key_mismatch".to_string(),
-            http_status: status_code,
-            user: Some(user),
-            usage: None,
-        };
-    }
-    
-    if !payload_valid {
-        let message = payload.get("message")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        return VerifyResponse {
-            valid: false,
-            message: if message.is_empty() { "Invalid license key.".to_string() } else { message },
-            status: "invalid_key".to_string(),
-            http_status: status_code,
-            user: Some(user),
-            usage: None,
-        };
-    }
-    
-    let usage_policy = apply_usage_policy(key, &payload, &user);
-    VerifyResponse {
-        valid: usage_policy.valid,
-        message: if usage_policy.message.is_empty() { "License verified.".to_string() } else { usage_policy.message },
-        status: usage_policy.status,
-        http_status: status_code,
-        user: Some(user),
-        usage: usage_policy.usage,
+    match server_request(
+        "v1/activate",
+        serde_json::json!({
+            "license_key": key,
+            "install_id": install,
+            "client_version": env!("CARGO_PKG_VERSION"),
+        }),
+    ) {
+        Ok((status, response)) => map_server_response(status, response),
+        Err(error) => failed_response("network_error", error, 0),
     }
 }
 
 // --- Active Session Management ---
 
-pub fn begin_usage_session(license_key: &str, verification_result: &VerifyResponse) -> Result<(), String> {
-    if !verification_result.valid {
-        return Err("Cannot begin session for invalid verification result".to_string());
+pub fn begin_usage_session(
+    _license_key: &str,
+    verification_result: &VerifyResponse,
+) -> Result<(), String> {
+    if !verification_result.valid || verification_result.session_token.is_empty() {
+        return Err("Cannot begin an invalid online session".to_string());
     }
-    
-    let usage = match &verification_result.usage {
-        Some(u) => u,
-        None => return Err("Missing usage state for this license".to_string()),
-    };
-    
-    let mut ledger = match read_secure_ledger() {
-        Ok(l) => l,
-        Err(e) => return Err(format!("Secure license storage could not be verified: {}", e)),
-    };
-    
-    let now_wall = std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs_f64();
-        
-    ledger.session_count += 1;
-    ledger.last_runtime_update_unix = now_wall;
-    
-    let secure_dir = get_secure_storage_dir();
-    let key_path = secure_dir.join("ledger.key");
-    let key = std::fs::read(&key_path).map_err(|e| e.to_string()).and_then(|wrapped| dpapi_unprotect(&wrapped))?;
-    write_secure_ledger(&ledger, &key)?;
-    
     let mut session_guard = ACTIVE_SESSION.lock().unwrap();
     *session_guard = Some(ActiveSession {
-        license_key: license_key.trim().to_string(),
-        tier: usage.tier.clone(),
-        bought_at_ts: usage.bought_at_ts,
-        last_wall: now_wall,
-        last_mono: std::time::Instant::now(),
+        session_token: verification_result.session_token.clone(),
+        sequence: 0,
+        heartbeat_interval_seconds: verification_result
+            .heartbeat_interval_seconds
+            .clamp(15, 300),
         last_heartbeat_mono: std::time::Instant::now(),
     });
-    
     Ok(())
 }
 
 pub fn end_usage_session() {
     let mut session_guard = ACTIVE_SESSION.lock().unwrap();
-    if session_guard.is_some() {
-        let _ = heartbeat_usage_session_internal(&mut *session_guard, true);
+    if let Some(session) = session_guard.take() {
+        let _ = server_request(
+            "v1/deactivate",
+            serde_json::json!({
+                "session_token": session.session_token,
+            }),
+        );
     }
-    *session_guard = None;
 }
 
 pub fn heartbeat_usage_session(force: bool) -> Option<VerifyResponse> {
     let mut session_guard = ACTIVE_SESSION.lock().unwrap();
-    if session_guard.is_none() {
+    let session = session_guard.as_mut()?;
+    let now = std::time::Instant::now();
+    if !force
+        && now.duration_since(session.last_heartbeat_mono).as_secs()
+            < session.heartbeat_interval_seconds
+    {
         return None;
     }
-    match heartbeat_usage_session_internal(&mut *session_guard, force) {
-        Ok(res) => res,
-        Err(err_msg) => {
+    session.last_heartbeat_mono = now;
+    session.sequence = session.sequence.saturating_add(1);
+    let result = server_request(
+        "v1/heartbeat",
+        serde_json::json!({
+            "session_token": session.session_token,
+            "sequence": session.sequence,
+        }),
+    );
+    match result {
+        Ok((status, response)) => {
+            let mapped = map_server_response(status, response);
+            if !mapped.valid {
+                *session_guard = None;
+            }
+            Some(mapped)
+        }
+        Err(error) => {
             *session_guard = None;
-            Some(VerifyResponse {
-                valid: false,
-                message: err_msg,
-                status: "ledger_error".to_string(),
-                http_status: 0,
-                user: None,
-                usage: None,
-            })
+            Some(failed_response("network_error", error, 0))
         }
     }
-}
-
-fn heartbeat_usage_session_internal(session_opt: &mut Option<ActiveSession>, force: bool) -> Result<Option<VerifyResponse>, String> {
-    let session = match session_opt {
-        Some(s) => s,
-        None => return Ok(None),
-    };
-    
-    let now_mono = std::time::Instant::now();
-    let now_wall = std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs_f64();
-        
-    if !force {
-        let elapsed_heartbeat = now_mono.duration_since(session.last_heartbeat_mono).as_secs_f64();
-        if elapsed_heartbeat < HEARTBEAT_MIN_INTERVAL_SECONDS {
-            return Ok(None);
-        }
-        session.last_heartbeat_mono = now_mono;
-    }
-    
-    let delta_usage = now_mono.duration_since(session.last_mono).as_secs_f64().max(0.0);
-    session.last_mono = now_mono;
-    
-    if !force && delta_usage <= 0.0 {
-        return Ok(None);
-    }
-    
-    let mut ledger = read_secure_ledger()?;
-        
-    if (now_wall + ROLLBACK_TOLERANCE_SECONDS) < session.last_wall {
-        ledger.tamper_count += 1;
-        
-        let secure_dir = get_secure_storage_dir();
-        let key_path = secure_dir.join("ledger.key");
-        let key = std::fs::read(&key_path).map_err(|e| e.to_string()).and_then(|wrapped| dpapi_unprotect(&wrapped))?;
-        write_secure_ledger(&ledger, &key)?;
-        
-        if ledger.tamper_count >= MAX_TAMPER_BEFORE_REVOKE {
-            return Err("License revoked due to repeated system-clock tampering.".to_string());
-        }
-    }
-    
-    session.last_wall = now_wall;
-    
-    ledger.used_seconds += delta_usage;
-    ledger.last_runtime_update_unix = now_wall;
-    
-    let secure_dir = get_secure_storage_dir();
-    let key_path = secure_dir.join("ledger.key");
-    let key = std::fs::read(&key_path).map_err(|e| e.to_string()).and_then(|wrapped| dpapi_unprotect(&wrapped))?;
-    
-    let tier = if !ledger.license_tier.is_empty() {
-        ledger.license_tier.clone()
-    } else {
-        session.tier.clone()
-    };
-    
-    let entitlement = get_tier_seconds(&tier);
-    let snapshot = build_usage_snapshot(&session.license_key, &tier, ledger.bought_at_ts, &ledger);
-    
-    write_secure_ledger(&ledger, &key)?;
-    
-    if let Some(ent) = entitlement {
-        if ledger.used_seconds >= ent {
-            return Ok(Some(VerifyResponse {
-                valid: false,
-                message: "License usage time has been fully consumed.".to_string(),
-                status: "usage_expired".to_string(),
-                http_status: 200,
-                user: None,
-                usage: Some(snapshot),
-            }));
-        }
-    }
-    
-    Ok(Some(VerifyResponse {
-        valid: true,
-        message: "License active.".to_string(),
-        status: "valid".to_string(),
-        http_status: 200,
-        user: None,
-        usage: Some(snapshot),
-    }))
 }
 
 // --- UI formatting helper ---
@@ -1298,7 +1198,7 @@ pub fn format_user_info_for_ui(result: &VerifyResponse) -> String {
         };
         lines.push(msg);
     }
-    
+
     if let Some(user) = &result.user {
         if !user.name.is_empty() {
             lines.push(format!("Name: {}", user.name));
@@ -1313,19 +1213,40 @@ pub fn format_user_info_for_ui(result: &VerifyResponse) -> String {
             lines.push(format!("Product: {}", user.product_name));
         }
     }
-    
+
     if let Some(usage) = &result.usage {
-        lines.push(format!("Variation: {}", if usage.tier.is_empty() { "Unknown" } else { &usage.tier }));
-        lines.push(format!("Used: {}", if usage.used_text.is_empty() { "0m" } else { &usage.used_text }));
-        lines.push(format!("Remaining: {}", if usage.remaining_text.is_empty() { "Unknown" } else { &usage.remaining_text }));
+        lines.push(format!(
+            "Variation: {}",
+            if usage.tier.is_empty() {
+                "Unknown"
+            } else {
+                &usage.tier
+            }
+        ));
+        lines.push(format!(
+            "Used: {}",
+            if usage.used_text.is_empty() {
+                "0m"
+            } else {
+                &usage.used_text
+            }
+        ));
+        lines.push(format!(
+            "Remaining: {}",
+            if usage.remaining_text.is_empty() {
+                "Unknown"
+            } else {
+                &usage.remaining_text
+            }
+        ));
     }
-    
+
     if let Some(user) = &result.user {
         if !user.license_key.is_empty() {
             lines.push(format!("License Key: {}", user.license_key));
         }
     }
-    
+
     lines.join("\n")
 }
 
@@ -1336,24 +1257,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_reveal_product_secret() {
-        let secret = reveal_product_secret();
-        assert!(secret.is_ok(), "Decryption failed: {:?}", secret.err());
-        let s = secret.unwrap();
-        assert!(!s.is_empty(), "Decrypted secret is empty");
-    }
-
-    #[test]
     fn test_dpapi_roundtrip() {
         let original = b"Hello, Windows DPAPI secret data!";
         let protected = dpapi_protect(original, "Test Description");
-        assert!(protected.is_ok(), "DPAPI protect failed: {:?}", protected.err());
+        assert!(
+            protected.is_ok(),
+            "DPAPI protect failed: {:?}",
+            protected.err()
+        );
         let wrapped = protected.unwrap();
-        
+
         let unprotected = dpapi_unprotect(&wrapped);
-        assert!(unprotected.is_ok(), "DPAPI unprotect failed: {:?}", unprotected.err());
+        assert!(
+            unprotected.is_ok(),
+            "DPAPI unprotect failed: {:?}",
+            unprotected.err()
+        );
         let unwrapped = unprotected.unwrap();
-        
+
         assert_eq!(original, unwrapped.as_slice());
     }
 
@@ -1361,7 +1282,7 @@ mod tests {
     fn test_secure_ledger_roundtrip() {
         let ledger_dir = get_secure_storage_dir();
         let _ = std::fs::create_dir_all(&ledger_dir);
-        
+
         let key = match read_secure_ledger() {
             Ok(_) => {
                 let key_path = ledger_dir.join("ledger.key");
@@ -1374,7 +1295,7 @@ mod tests {
                 dpapi_unprotect(&wrapped).unwrap()
             }
         };
-        
+
         let payload = LedgerPayload {
             schema: 2,
             sequence: 42,
@@ -1388,13 +1309,21 @@ mod tests {
             last_verified_unix: 123456800.0,
             state_digest: String::new(),
         };
-        
+
         let write_res = write_secure_ledger(&payload, &key);
-        assert!(write_res.is_ok(), "Writing ledger failed: {:?}", write_res.err());
-        
+        assert!(
+            write_res.is_ok(),
+            "Writing ledger failed: {:?}",
+            write_res.err()
+        );
+
         let read_res = read_secure_ledger();
-        assert!(read_res.is_ok(), "Reading ledger failed: {:?}", read_res.err());
-        
+        assert!(
+            read_res.is_ok(),
+            "Reading ledger failed: {:?}",
+            read_res.err()
+        );
+
         let read_payload = read_res.unwrap();
         assert_eq!(read_payload.sequence, 42);
         assert_eq!(read_payload.license_fingerprint, "test_fingerprint_sha256");
@@ -1406,16 +1335,15 @@ mod tests {
     fn test_timestamp_parser() {
         let ts1 = parse_timestamp("2026-06-22 13:53:35");
         assert!(ts1.is_some());
-        
+
         let ts2 = parse_timestamp("2026/06/22 13:53:35");
         assert!(ts2.is_some());
         assert_eq!(ts1, ts2);
-        
+
         let ts3 = parse_timestamp("2026-06-22T13:53:35+08:00");
         assert!(ts3.is_some());
-        
+
         let ts4 = parse_timestamp("1782117215");
         assert_eq!(ts4, Some(1782117215.0));
     }
 }
-
