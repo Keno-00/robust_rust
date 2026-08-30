@@ -3,13 +3,16 @@ interface Env {
   ACTIVATION_RATE_LIMITER: RateLimit;
   SESSION_RATE_LIMITER: RateLimit;
   DISCORD_RATE_LIMITER: RateLimit;
-  PAYHIP_PRODUCT_SECRET: string;
+  PAYHIP_PRODUCT_SECRET?: string;
+  PAYHIP_PRODUCT_SECRET_APB?: string;
+  PAYHIP_PRODUCT_SECRET_SM?: string;
   LICENSE_HASH_SECRET: string;
   DISCORD_WEBHOOK_URL?: string;
   DISCORD_PUBLIC_KEY: string;
   DISCORD_APPLICATION_ID: string;
   APP_ENABLED: string;
-  ALLOWED_PRODUCT_NAMES: string;
+  APB_PAYHIP_PRODUCT_NAMES: string;
+  SM_PAYHIP_PRODUCT_NAMES: string;
   MIN_CLIENT_VERSION: string;
   HEARTBEAT_INTERVAL_SECONDS: string;
   SESSION_TTL_SECONDS: string;
@@ -17,6 +20,20 @@ interface Env {
 }
 
 type JsonObject = Record<string, unknown>;
+
+type Product = {
+  id: "verux.apb" | "verux.sm";
+  displayName: string;
+  payhipSecret: string;
+  payhipProductNames: string;
+};
+
+function requestedProduct(body: JsonObject, env: Env): Product | null {
+  const id = stringAt(body, "product_id").toLowerCase();
+  if (id === "verux.apb") return { id, displayName: "Verux APB", payhipSecret: env.PAYHIP_PRODUCT_SECRET_APB || env.PAYHIP_PRODUCT_SECRET || "", payhipProductNames: env.APB_PAYHIP_PRODUCT_NAMES };
+  if (id === "verux.sm") return { id, displayName: "Songmaker", payhipSecret: env.PAYHIP_PRODUCT_SECRET_SM || "", payhipProductNames: env.SM_PAYHIP_PRODUCT_NAMES };
+  return null;
+}
 
 const json = (body: JsonObject, status = 200): Response =>
   Response.json(body, {
@@ -247,7 +264,7 @@ async function discordCommand(interaction: JsonObject, env: Env): Promise<string
     const query = interactionOption(interaction, "customer");
     if (query.length < 3 || query.length > 100) return "Provide at least 3 characters of a customer name or email.";
     const row = await env.LICENSE_DB.prepare(`
-      SELECT customer_name, customer_email, product_name, tier, status, used_seconds, entitlement_seconds,
+      SELECT product_id, customer_name, customer_email, product_name, tier, status, used_seconds, entitlement_seconds,
         last_verified_at, updated_at
       FROM licenses WHERE customer_name LIKE ? OR customer_email LIKE ?
       ORDER BY updated_at DESC LIMIT 1
@@ -257,6 +274,7 @@ async function discordCommand(interaction: JsonObject, env: Env): Promise<string
     const used = Number(row.used_seconds || 0);
     return [
       "**License information**",
+      `Product ID: ${row.product_id || "verux.apb"}`,
       `Customer: ${row.customer_name || "Unknown"}`,
       `Email: ${row.customer_email || "Unavailable"}`,
       `Product: ${row.product_name || "Unknown"}`,
@@ -270,13 +288,13 @@ async function discordCommand(interaction: JsonObject, env: Env): Promise<string
   }
   if (command === "sessions") {
     const rows = await env.LICENSE_DB.prepare(`
-      SELECT l.customer_name, l.tier, s.client_version, s.sequence, s.started_at, s.last_seen_at, s.expires_at
-      FROM sessions s JOIN licenses l ON l.license_hash = s.license_hash
+      SELECT s.product_id, l.customer_name, l.tier, s.client_version, s.sequence, s.started_at, s.last_seen_at, s.expires_at
+      FROM sessions s JOIN licenses l ON l.product_id = s.product_id AND l.license_hash = s.license_hash
       WHERE s.revoked_at IS NULL AND s.expires_at >= ? ORDER BY s.last_seen_at DESC LIMIT 20
     `).bind(now).all<Record<string, unknown>>();
     const lines = [`**Active sessions (${rows.results?.length || 0})**`];
     for (const row of rows.results || []) {
-      lines.push(`${row.customer_name || "Unknown"} — ${row.tier} — v${row.client_version} — heartbeat #${row.sequence} — seen ${utcTime(row.last_seen_at)}`);
+      lines.push(`${row.product_id || "verux.apb"} — ${row.customer_name || "Unknown"} — ${row.tier} — v${row.client_version} — heartbeat #${row.sequence} — seen ${utcTime(row.last_seen_at)}`);
     }
     return lines.join("\n");
   }
@@ -341,10 +359,10 @@ function networkPrefix(request: Request): string {
   return address.split(".").slice(0, 3).join(".");
 }
 
-async function audit(env: Env, request: Request, type: string, licenseHash = "", installHash = "", detail = ""): Promise<void> {
+async function audit(env: Env, request: Request, productId: string, type: string, licenseHash = "", installHash = "", detail = ""): Promise<void> {
   await env.LICENSE_DB.prepare(
-    "INSERT INTO audit_events (license_hash, install_hash, event_type, ip_prefix, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-  ).bind(licenseHash || null, installHash || null, type, networkPrefix(request), detail.slice(0, 500), nowSeconds()).run();
+    "INSERT INTO audit_events (product_id, license_hash, install_hash, event_type, ip_prefix, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).bind(productId, licenseHash || null, installHash || null, type, networkPrefix(request), detail.slice(0, 500), nowSeconds()).run();
 }
 
 function formatDuration(totalSeconds: number | null): string {
@@ -389,6 +407,8 @@ function publicLicense(row: Record<string, unknown>) {
 async function activate(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const body = await readBody(request);
   if (!body) return json({ valid: false, status: "invalid_request", message: "Expected a JSON request." }, 400);
+  const product = requestedProduct(body, env);
+  if (!product) return json({ valid: false, status: "invalid_product", message: "A supported product_id is required." }, 400);
   const licenseKey = stringAt(body, "license_key");
   const installId = stringAt(body, "install_id");
   const clientVersion = stringAt(body, "client_version");
@@ -403,13 +423,16 @@ async function activate(request: Request, env: Env, ctx: ExecutionContext): Prom
   if (!versionAtLeast(clientVersion, env.MIN_CLIENT_VERSION)) {
     return json({ valid: false, status: "update_required", message: "This application version is no longer supported." }, 426);
   }
+  if (!product.payhipSecret || !product.payhipProductNames) {
+    return json({ valid: false, status: "product_not_configured", message: "Licensing is not configured for this product." }, 503);
+  }
 
   const payhipUrl = new URL("https://payhip.com/api/v2/license/verify");
   payhipUrl.searchParams.set("license_key", licenseKey);
   let payhipResponse: Response;
   try {
     payhipResponse = await fetch(payhipUrl, {
-      headers: { Accept: "application/json", "product-secret-key": env.PAYHIP_PRODUCT_SECRET },
+      headers: { Accept: "application/json", "product-secret-key": product.payhipSecret },
     });
   } catch {
     return json({ valid: false, status: "upstream_unavailable", message: "License provider is unavailable." }, 503);
@@ -419,57 +442,62 @@ async function activate(request: Request, env: Env, ctx: ExecutionContext): Prom
   const enabled = data.enabled !== false;
   const valid = (payhipPayload.valid === true || payhipPayload.success === true || data.enabled === true) && enabled;
   if (!payhipResponse.ok || !valid) {
-    await audit(env, request, "activation_denied");
+    await audit(env, request, product.id, "activation_denied");
     return json({ valid: false, status: "invalid_key", message: "Invalid or disabled license key." }, 401);
   }
   const tier = inferTier(payhipPayload);
   if (!tier) return json({ valid: false, status: "unknown_tier", message: "This license has an unsupported product variation." }, 403);
 
-  const licenseHash = await hmacHex(env.LICENSE_HASH_SECRET, `license:${licenseKey.trim()}`);
-  const installHash = await hmacHex(env.LICENSE_HASH_SECRET, `install:${installId}`);
+  let licenseHash = await hmacHex(env.LICENSE_HASH_SECRET, `license:${product.id}:${licenseKey.trim()}`);
+  const installHash = await hmacHex(env.LICENSE_HASH_SECRET, `install:${product.id}:${installId}`);
   const now = nowSeconds();
-  const existing = await env.LICENSE_DB.prepare("SELECT * FROM licenses WHERE license_hash = ?").bind(licenseHash).first<Record<string, unknown>>();
+  let existing = await env.LICENSE_DB.prepare("SELECT * FROM licenses WHERE product_id = ? AND license_hash = ?").bind(product.id, licenseHash).first<Record<string, unknown>>();
+  if (!existing && product.id === "verux.apb") {
+    const legacyLicenseHash = await hmacHex(env.LICENSE_HASH_SECRET, `license:${licenseKey.trim()}`);
+    existing = await env.LICENSE_DB.prepare("SELECT * FROM licenses WHERE product_id = ? AND license_hash = ?").bind(product.id, legacyLicenseHash).first<Record<string, unknown>>();
+    if (existing) licenseHash = legacyLicenseHash;
+  }
   if (existing?.status === "revoked") return json({ valid: false, status: "revoked", message: "This license has been revoked." }, 403);
 
   const source = Object.keys(data).length ? data : payhipPayload;
   const verifiedProductName = productName(payhipPayload, source);
-  if (!productAllowed(verifiedProductName, env.ALLOWED_PRODUCT_NAMES)) {
-    await audit(env, request, "activation_wrong_product");
-    return json({ valid: false, status: "wrong_product", message: "This license is not valid for Verux APB." }, 403);
+  if (!productAllowed(verifiedProductName, product.payhipProductNames)) {
+    await audit(env, request, product.id, "activation_wrong_product");
+    return json({ valid: false, status: "wrong_product", message: "This license is not valid for the requested product." }, 403);
   }
   const purchasedAt = existing ? Number(existing.purchased_at) : now;
   await env.LICENSE_DB.prepare(`
-    INSERT INTO licenses (license_hash, payhip_license_id, tier, purchased_at, entitlement_seconds, used_seconds, status,
+    INSERT INTO licenses (product_id, license_hash, payhip_license_id, tier, purchased_at, entitlement_seconds, used_seconds, status,
       customer_name, customer_email, product_name, last_verified_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 0, 'active', ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, 0, 'active', ?, ?, ?, ?, ?, ?)
     ON CONFLICT(license_hash) DO UPDATE SET payhip_license_id=excluded.payhip_license_id, tier=excluded.tier,
       entitlement_seconds=excluded.entitlement_seconds, customer_name=excluded.customer_name,
       customer_email=excluded.customer_email, product_name=excluded.product_name,
       last_verified_at=excluded.last_verified_at, updated_at=excluded.updated_at
   `).bind(
-    licenseHash, stringAt(source, "id", "license_id"), tier.tier, purchasedAt, tier.seconds,
+    product.id, licenseHash, stringAt(source, "id", "license_id"), tier.tier, purchasedAt, tier.seconds,
     customerName(payhipPayload, source), customerEmail(payhipPayload, source),
     verifiedProductName, now, now, now,
   ).run();
-  const license = await env.LICENSE_DB.prepare("SELECT * FROM licenses WHERE license_hash = ?").bind(licenseHash).first<Record<string, unknown>>();
+  const license = await env.LICENSE_DB.prepare("SELECT * FROM licenses WHERE product_id = ? AND license_hash = ?").bind(product.id, licenseHash).first<Record<string, unknown>>();
   if (!license) return json({ valid: false, status: "server_error", message: "Unable to create license state." }, 500);
   const usage = publicLicense(license);
   if (usage.remaining_seconds !== null && usage.remaining_seconds <= 0) {
     return json({ valid: false, status: "usage_expired", message: "License usage time has been fully consumed.", usage }, 403);
   }
 
-  await env.LICENSE_DB.prepare("UPDATE sessions SET revoked_at = ? WHERE license_hash = ? AND revoked_at IS NULL").bind(now, licenseHash).run();
+  await env.LICENSE_DB.prepare("UPDATE sessions SET revoked_at = ? WHERE product_id = ? AND license_hash = ? AND revoked_at IS NULL").bind(now, product.id, licenseHash).run();
   const sessionToken = randomToken();
-  const sessionHash = await hmacHex(env.LICENSE_HASH_SECRET, `session:${sessionToken}`);
+  const sessionHash = await hmacHex(env.LICENSE_HASH_SECRET, `session:${product.id}:${sessionToken}`);
   const ttl = Number.parseInt(env.SESSION_TTL_SECONDS, 10);
   await env.LICENSE_DB.prepare(`
-    INSERT INTO sessions (session_hash, license_hash, install_hash, client_version, sequence, started_at, last_seen_at, expires_at)
-    VALUES (?, ?, ?, ?, 0, ?, ?, ?)
-  `).bind(sessionHash, licenseHash, installHash, clientVersion, now, now, now + ttl).run();
-  await audit(env, request, "activation_granted", licenseHash, installHash);
+    INSERT INTO sessions (product_id, session_hash, license_hash, install_hash, client_version, sequence, started_at, last_seen_at, expires_at)
+    VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
+  `).bind(product.id, sessionHash, licenseHash, installHash, clientVersion, now, now, now + ttl).run();
+  await audit(env, request, product.id, "activation_granted", licenseHash, installHash);
   ctx.waitUntil(notifyDiscord(env, [
     `Software user ${String(license.customer_name || "Unknown")} logged in`,
-    `Software: ${String(license.product_name || "Verux APB")}`,
+    `Software: ${product.displayName}`,
     `Tier: ${tier.tier}`,
     `Time used: ${formatDuration(usage.used_seconds)}`,
     `Time remaining: ${formatDuration(usage.remaining_seconds)}`,
@@ -495,6 +523,8 @@ async function activate(request: Request, env: Env, ctx: ExecutionContext): Prom
 
 async function heartbeat(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const body = await readBody(request);
+  const product = body ? requestedProduct(body, env) : null;
+  if (!product) return json({ valid: false, status: "invalid_product", message: "A supported product_id is required." }, 400);
   const token = body ? stringAt(body, "session_token") : "";
   const sequence = body && typeof body.sequence === "number" ? Math.floor(body.sequence) : -1;
   if (!token || sequence < 1) return json({ valid: false, status: "invalid_request", message: "Invalid heartbeat." }, 400);
@@ -504,18 +534,19 @@ async function heartbeat(request: Request, env: Env, ctx: ExecutionContext): Pro
   }
   if (env.APP_ENABLED !== "true") return json({ valid: false, status: "maintenance", message: "Service is temporarily unavailable." }, 503);
 
-  const sessionHash = await hmacHex(env.LICENSE_HASH_SECRET, `session:${token}`);
+  const sessionHash = await hmacHex(env.LICENSE_HASH_SECRET, `session:${product.id}:${token}`);
   const session = await env.LICENSE_DB.prepare(`
     SELECT s.*, l.tier, l.used_seconds, l.entitlement_seconds, l.status AS license_status,
       l.customer_name, l.product_name
-    FROM sessions s JOIN licenses l ON l.license_hash = s.license_hash WHERE s.session_hash = ?
-  `).bind(sessionHash).first<Record<string, unknown>>();
+    FROM sessions s JOIN licenses l ON l.product_id = s.product_id AND l.license_hash = s.license_hash
+    WHERE s.product_id = ? AND s.session_hash = ?
+  `).bind(product.id, sessionHash).first<Record<string, unknown>>();
   const now = nowSeconds();
   if (!session || session.revoked_at !== null || Number(session.expires_at) < now || session.license_status !== "active") {
     return json({ valid: false, status: "session_expired", message: "Session expired. Please log in again." }, 401);
   }
   if (sequence <= Number(session.sequence)) {
-    await audit(env, request, "heartbeat_replay", String(session.license_hash), String(session.install_hash));
+    await audit(env, request, product.id, "heartbeat_replay", String(session.license_hash), String(session.install_hash));
     return json({ valid: false, status: "replay_detected", message: "Invalid session sequence." }, 409);
   }
   const elapsed = Math.max(0, Math.min(now - Number(session.last_seen_at), Number.parseInt(env.SESSION_TTL_SECONDS, 10)));
@@ -523,18 +554,18 @@ async function heartbeat(request: Request, env: Env, ctx: ExecutionContext): Pro
   const newUsed = Number(session.used_seconds) + elapsed;
   const ttl = Number.parseInt(env.SESSION_TTL_SECONDS, 10);
   await env.LICENSE_DB.batch([
-    env.LICENSE_DB.prepare("UPDATE licenses SET used_seconds = ?, updated_at = ? WHERE license_hash = ?").bind(newUsed, now, session.license_hash),
-    env.LICENSE_DB.prepare("UPDATE sessions SET sequence = ?, last_seen_at = ?, expires_at = ? WHERE session_hash = ?").bind(sequence, now, now + ttl, sessionHash),
+    env.LICENSE_DB.prepare("UPDATE licenses SET used_seconds = ?, updated_at = ? WHERE product_id = ? AND license_hash = ?").bind(newUsed, now, product.id, session.license_hash),
+    env.LICENSE_DB.prepare("UPDATE sessions SET sequence = ?, last_seen_at = ?, expires_at = ? WHERE product_id = ? AND session_hash = ?").bind(sequence, now, now + ttl, product.id, sessionHash),
   ]);
   const usage = {
     tier: String(session.tier), used_seconds: newUsed, entitlement_seconds: entitlement,
     remaining_seconds: entitlement === null ? null : Math.max(0, entitlement - newUsed),
   };
   if (usage.remaining_seconds !== null && usage.remaining_seconds <= 0) {
-    await env.LICENSE_DB.prepare("UPDATE sessions SET revoked_at = ? WHERE session_hash = ?").bind(now, sessionHash).run();
+    await env.LICENSE_DB.prepare("UPDATE sessions SET revoked_at = ? WHERE product_id = ? AND session_hash = ?").bind(now, product.id, sessionHash).run();
     ctx.waitUntil(notifyDiscord(env, [
       `Software user ${String(session.customer_name || "Unknown")} license expired`,
-      `Software: ${String(session.product_name || "Verux APB")}`,
+      `Software: ${product.displayName}`,
       `Tier: ${String(session.tier)}`,
       `Time used: ${formatDuration(newUsed)}`,
       "Time remaining: 0m",
@@ -547,10 +578,12 @@ async function heartbeat(request: Request, env: Env, ctx: ExecutionContext): Pro
 
 async function deactivate(request: Request, env: Env): Promise<Response> {
   const body = await readBody(request);
+  const product = body ? requestedProduct(body, env) : null;
+  if (!product) return json({ valid: false, status: "invalid_product", message: "A supported product_id is required." }, 400);
   const token = body ? stringAt(body, "session_token") : "";
   if (token) {
-    const sessionHash = await hmacHex(env.LICENSE_HASH_SECRET, `session:${token}`);
-    await env.LICENSE_DB.prepare("UPDATE sessions SET revoked_at = ? WHERE session_hash = ? AND revoked_at IS NULL").bind(nowSeconds(), sessionHash).run();
+    const sessionHash = await hmacHex(env.LICENSE_HASH_SECRET, `session:${product.id}:${token}`);
+    await env.LICENSE_DB.prepare("UPDATE sessions SET revoked_at = ? WHERE product_id = ? AND session_hash = ? AND revoked_at IS NULL").bind(nowSeconds(), product.id, sessionHash).run();
   }
   return json({ valid: true, status: "deactivated", message: "Session closed." });
 }

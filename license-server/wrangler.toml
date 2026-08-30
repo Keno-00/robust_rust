@@ -6,7 +6,10 @@ preview_urls = false
 
 [vars]
 APP_ENABLED = "true"
-ALLOWED_PRODUCT_NAMES = "verux.apb"
+APB_PAYHIP_PRODUCT_NAMES = "verux.apb"
+# Keep empty until Songmaker has an official Payhip listing. Enrollment also
+# requires the PAYHIP_PRODUCT_SECRET_SM Worker secret described in README.md.
+SM_PAYHIP_PRODUCT_NAMES = ""
 MIN_CLIENT_VERSION = "1.5.0"
 HEARTBEAT_INTERVAL_SECONDS = "45"
 SESSION_TTL_SECONDS = "120"

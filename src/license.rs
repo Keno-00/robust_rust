@@ -1107,6 +1107,7 @@ pub fn verify_license_key(license_key: &str) -> VerifyResponse {
     match server_request(
         "v1/activate",
         serde_json::json!({
+            "product_id": "verux.apb",
             "license_key": key,
             "install_id": install,
             "client_version": env!("CARGO_PKG_VERSION"),
@@ -1144,6 +1145,7 @@ pub fn end_usage_session() {
         let _ = server_request(
             "v1/deactivate",
             serde_json::json!({
+                "product_id": "verux.apb",
                 "session_token": session.session_token,
             }),
         );
@@ -1165,6 +1167,7 @@ pub fn heartbeat_usage_session(force: bool) -> Option<VerifyResponse> {
     let result = server_request(
         "v1/heartbeat",
         serde_json::json!({
+            "product_id": "verux.apb",
             "session_token": session.session_token,
             "sequence": session.sequence,
         }),
