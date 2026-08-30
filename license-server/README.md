@@ -34,9 +34,13 @@ Do not send the secret through chat, source control, command-line arguments, bui
 2. Authenticate with `npx wrangler login`.
 3. Create D1 with `npx wrangler d1 create verux-license`.
 4. Put the returned database ID in `wrangler.toml`.
-5. Run `npm run db:migrate:remote`.
-6. Configure both required secrets.
-7. Run `npm run deploy`.
-8. Compile the Rust application with `VERUX_LICENSE_SERVER_URL` set to the deployed Worker origin.
+5. Release the APB client that sends `"product_id": "verux.apb"` while the existing Worker is still deployed. The old Worker safely ignores this additional JSON field.
+6. Allow that APB release to reach users, or deliberately enforce its minimum version before changing the Worker protocol.
+7. Run `npm run db:migrate:remote`.
+8. Configure the required secrets.
+9. Run `npm run deploy`.
+10. Compile each Rust application with `VERUX_LICENSE_SERVER_URL` set to the deployed Worker origin.
 
-`APP_ENABLED`, `MIN_CLIENT_VERSION`, heartbeat interval, and session TTL are server-controlled values in `wrangler.toml`.
+The multi-product Worker intentionally requires `product_id`; it does not accept legacy requests without one. APB sessions created by the previous Worker use legacy session hashes and must log in again after cutover. Existing APB license usage and revocation state remain authoritative through the documented legacy license-hash lookup.
+
+`APP_ENABLED`, `APB_MIN_CLIENT_VERSION`, `SM_MIN_CLIENT_VERSION`, heartbeat interval, and session TTL are server-controlled values in `wrangler.toml`. The committed defaults are APB `1.5.0` and SM `1.0.0`.

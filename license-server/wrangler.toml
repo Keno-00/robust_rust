@@ -10,7 +10,8 @@ APB_PAYHIP_PRODUCT_NAMES = "verux.apb"
 # Keep empty until Songmaker has an official Payhip listing. Enrollment also
 # requires the PAYHIP_PRODUCT_SECRET_SM Worker secret described in README.md.
 SM_PAYHIP_PRODUCT_NAMES = ""
-MIN_CLIENT_VERSION = "1.5.0"
+APB_MIN_CLIENT_VERSION = "1.5.0"
+SM_MIN_CLIENT_VERSION = "1.0.0"
 HEARTBEAT_INTERVAL_SECONDS = "45"
 SESSION_TTL_SECONDS = "120"
 DISCORD_ADMIN_USER_ID = "541193737758441472"

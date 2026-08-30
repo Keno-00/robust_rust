@@ -13,7 +13,8 @@ interface Env {
   APP_ENABLED: string;
   APB_PAYHIP_PRODUCT_NAMES: string;
   SM_PAYHIP_PRODUCT_NAMES: string;
-  MIN_CLIENT_VERSION: string;
+  APB_MIN_CLIENT_VERSION: string;
+  SM_MIN_CLIENT_VERSION: string;
   HEARTBEAT_INTERVAL_SECONDS: string;
   SESSION_TTL_SECONDS: string;
   DISCORD_ADMIN_USER_ID: string;
@@ -26,12 +27,13 @@ type Product = {
   displayName: string;
   payhipSecret: string;
   payhipProductNames: string;
+  minimumClientVersion: string;
 };
 
 function requestedProduct(body: JsonObject, env: Env): Product | null {
   const id = stringAt(body, "product_id").toLowerCase();
-  if (id === "verux.apb") return { id, displayName: "Verux APB", payhipSecret: env.PAYHIP_PRODUCT_SECRET_APB || env.PAYHIP_PRODUCT_SECRET || "", payhipProductNames: env.APB_PAYHIP_PRODUCT_NAMES };
-  if (id === "verux.sm") return { id, displayName: "Songmaker", payhipSecret: env.PAYHIP_PRODUCT_SECRET_SM || "", payhipProductNames: env.SM_PAYHIP_PRODUCT_NAMES };
+  if (id === "verux.apb") return { id, displayName: "Verux APB", payhipSecret: env.PAYHIP_PRODUCT_SECRET_APB || env.PAYHIP_PRODUCT_SECRET || "", payhipProductNames: env.APB_PAYHIP_PRODUCT_NAMES, minimumClientVersion: env.APB_MIN_CLIENT_VERSION };
+  if (id === "verux.sm") return { id, displayName: "Songmaker", payhipSecret: env.PAYHIP_PRODUCT_SECRET_SM || "", payhipProductNames: env.SM_PAYHIP_PRODUCT_NAMES, minimumClientVersion: env.SM_MIN_CLIENT_VERSION };
   return null;
 }
 
@@ -211,7 +213,8 @@ async function discordCommand(interaction: JsonObject, env: Env): Promise<string
       "**License service**",
       `Status: ${env.APP_ENABLED === "true" ? "Online" : "Maintenance"}`,
       "Database: Online",
-      `Minimum client: ${env.MIN_CLIENT_VERSION}`,
+      `APB minimum client: ${env.APB_MIN_CLIENT_VERSION}`,
+      `SM minimum client: ${env.SM_MIN_CLIENT_VERSION}`,
       `Heartbeat interval: ${env.HEARTBEAT_INTERVAL_SECONDS}s`,
       `Session TTL: ${env.SESSION_TTL_SECONDS}s`,
       `Checked: ${new Date().toISOString()}`,
@@ -303,7 +306,11 @@ async function discordCommand(interaction: JsonObject, env: Env): Promise<string
       SELECT client_version, COUNT(*) AS count FROM sessions
       WHERE revoked_at IS NULL AND expires_at >= ? GROUP BY client_version ORDER BY count DESC
     `).bind(now).all<Record<string, unknown>>();
-    const lines = [`**Client versions**`, `Minimum supported: ${env.MIN_CLIENT_VERSION}`];
+    const lines = [
+      `**Client versions**`,
+      `APB minimum supported: ${env.APB_MIN_CLIENT_VERSION}`,
+      `SM minimum supported: ${env.SM_MIN_CLIENT_VERSION}`,
+    ];
     for (const row of rows.results || []) lines.push(`v${row.client_version}: ${row.count} active`);
     return lines.join("\n");
   }
@@ -420,7 +427,7 @@ async function activate(request: Request, env: Env, ctx: ExecutionContext): Prom
     return json({ valid: false, status: "rate_limited", message: "Too many activation attempts." }, 429);
   }
   if (env.APP_ENABLED !== "true") return json({ valid: false, status: "maintenance", message: "Service is temporarily unavailable." }, 503);
-  if (!versionAtLeast(clientVersion, env.MIN_CLIENT_VERSION)) {
+  if (!versionAtLeast(clientVersion, product.minimumClientVersion)) {
     return json({ valid: false, status: "update_required", message: "This application version is no longer supported." }, 426);
   }
   if (!product.payhipSecret || !product.payhipProductNames) {
