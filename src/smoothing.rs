@@ -80,6 +80,59 @@ pub fn smooth_delta(
     }
 }
 
+/// Braking retains sub-count corrections until the final HID quantization. The
+/// legacy integer entry points above remain unchanged when braking is disabled.
+pub fn smooth_delta_precise(
+    smooth_type: Option<SmoothType>,
+    x: i32,
+    y: i32,
+    smoothing: f32,
+    grab_width: i32,
+    grab_height: i32,
+    bezier: &mut BezierSmoother,
+    now_s: f64,
+) -> (f64, f64) {
+    let scale = f64::from(smoothing.max(f32::MIN_POSITIVE));
+    match smooth_type {
+        None => {
+            let limit = 50.0 / scale;
+            (
+                f64::from(x).clamp(-limit, limit),
+                f64::from(y).clamp(-limit, limit),
+            )
+        }
+        Some(SmoothType::Linear) => (f64::from(x) / scale, f64::from(y) / scale),
+        Some(SmoothType::Logarithmic) => {
+            let curve = |value: i32| {
+                let value = f64::from(value);
+                value * value.abs().ln_1p() / scale
+            };
+            (curve(x), curve(y))
+        }
+        Some(SmoothType::Hyperbolic) => {
+            let base = f64::from(smoothing) * 100.0;
+            let check = 0.75 * std::f64::consts::PI * base + 5.0;
+            (
+                hyperbolic_one_precise(
+                    x,
+                    base,
+                    check,
+                    f64::from(grab_width) * 2.0 / 3.0,
+                    f64::from(grab_width),
+                ),
+                hyperbolic_one_precise(
+                    y,
+                    base,
+                    check,
+                    f64::from(grab_height) * 2.0 / 3.0,
+                    f64::from(grab_height),
+                ),
+            )
+        }
+        Some(SmoothType::Bezier) => bezier.step_precise(x, y, smoothing, now_s),
+    }
+}
+
 fn clamp_one(v: i32, limit: f32) -> i32 {
     let sign = v.signum() as f32;
     (sign * (v.abs() as f32).min(limit)) as i32
@@ -92,6 +145,16 @@ fn hyperbolic_one(
     farcheck: f64,
     threshold: f64,
 ) -> i32 {
+    hyperbolic_one_precise(value, smoothing_based, sinusoid_check, farcheck, threshold) as i32
+}
+
+fn hyperbolic_one_precise(
+    value: i32,
+    smoothing_based: f64,
+    sinusoid_check: f64,
+    farcheck: f64,
+    threshold: f64,
+) -> f64 {
     let abs = value.abs() as f64;
     let sign = value.signum() as f64;
     let mut out = value as f64;
@@ -106,7 +169,7 @@ fn hyperbolic_one(
         out = (2.0 * smoothing_based * (abs / smoothing_based).sin().powi(2)) * sign;
     }
 
-    out as i32
+    out
 }
 
 fn clamp_speed(value: f64) -> f64 {
@@ -148,13 +211,45 @@ impl BezierSmoother {
     }
 
     pub fn step(&mut self, rel_x: i32, rel_y: i32, smoothing: f32, now_s: f64) -> (i32, i32) {
+        let (x, y) = self.step_precise(rel_x, rel_y, smoothing, now_s);
+        (x as i32, y as i32)
+    }
+
+    pub fn horizontal_control_ratio(&self, error: i32, smoothing: f32) -> f64 {
+        if error == 0 {
+            return 0.0;
+        }
+        // step_precise stores velocity after decay; recover the control point
+        // used to draw this frame's Bezier segment before normalizing its brake.
+        (self.velocity.0 / interp_smoothing(smoothing) * 0.5 / f64::from(error)).clamp(0.0, 1.0)
+    }
+
+    /// Remove momentum that the brake has refused to send, including on crossing.
+    pub fn limit_horizontal_velocity(&mut self, allowed: i32) {
+        if allowed == 0 || self.velocity.0.signum() != f64::from(allowed).signum() {
+            self.velocity.0 = 0.0;
+        } else {
+            self.velocity.0 = self
+                .velocity
+                .0
+                .clamp(-f64::from(allowed).abs(), f64::from(allowed).abs());
+        }
+    }
+
+    pub fn step_precise(
+        &mut self,
+        rel_x: i32,
+        rel_y: i32,
+        smoothing: f32,
+        now_s: f64,
+    ) -> (f64, f64) {
         let direction = (rel_x.signum(), rel_y.signum());
         if direction != self.last_direction && direction != (0, 0) {
             if now_s - self.last_target_switch_time_s < TARGET_SWITCH_COOLDOWN_S {
-                return (0, 0);
+                return (0.0, 0.0);
             }
             if now_s - self.target_start_time_s < PERSISTENCE_THRESHOLD_S {
-                return (0, 0);
+                return (0.0, 0.0);
             }
             self.target_start_time_s = now_s;
             self.last_direction = direction;
@@ -197,7 +292,7 @@ impl BezierSmoother {
         self.velocity.0 *= inertia_decay;
         self.velocity.1 *= inertia_decay;
 
-        (clamp_speed(smooth_x) as i32, clamp_speed(smooth_y) as i32)
+        (clamp_speed(smooth_x), clamp_speed(smooth_y))
     }
 }
 

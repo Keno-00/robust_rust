@@ -1,6 +1,6 @@
 use crate::config::{
-    AimActivation, EaseCurve, PixelAcquisition, ProfileConfig, ProximityEffect, RampApply,
-    RectCompare, Rgb, SmoothType, TriggerActivation, Vec2i,
+    AimActivation, CoordinateSource, EaseCurve, ProfileConfig, ProximityEffect, RampApply, Rgb,
+    SmoothType, TriggerActivation, Vec2i,
 };
 use crate::input::InputBackend;
 use glium::texture::{RawImage2d, Texture2d};
@@ -36,15 +36,15 @@ pub struct UiState {
     pub license_key: String,
     pub login_notify: String,
     pub auth_notify: String,
-    pub target_folder: String,
     pub status: String,
     pub current_save_entry_name: String,
     pub selected_com_port: usize,
     pub com_ports: Vec<String>,
+    pub apb_pid: Option<u32>,
+    pub apb_process_status: String,
     pub input_backend: InputBackend,
     pub trigger_bounds: [i32; 2],
     pub color_picker_tolerance: i32,
-    pub show_color_tabs: bool,
     pub show_targeting_tab: bool,
     pub show_visuals_tab: bool,
     pub lines_color: [f32; 3],
@@ -83,15 +83,15 @@ impl UiState {
             license_key,
             login_notify: String::new(),
             auth_notify: String::new(),
-            target_folder: String::new(),
             status: String::new(),
             current_save_entry_name: profiles[selected_profile].clone(),
             selected_com_port,
             com_ports,
+            apb_pid: None,
+            apb_process_status: String::new(),
             input_backend: InputBackend::Arduino,
             trigger_bounds: [10, 10],
             color_picker_tolerance: 0,
-            show_color_tabs: false,
             show_targeting_tab: false,
             show_visuals_tab: false,
             profiles,
@@ -180,6 +180,30 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 state.logged_in = false;
                 state.start_requested = false;
                 state.auth_notify = message;
+            }
+            let runtime_error = state.runner_shared.as_ref().and_then(|shared| {
+                shared
+                    .lock()
+                    .ok()
+                    .and_then(|mut control| control.runtime_error.take())
+            });
+            if let Some(message) = runtime_error {
+                state.start_requested = false;
+                state.auth_notify = message.clone();
+                let text: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
+                let title: Vec<u16> = "Verux Runtime Error"
+                    .encode_utf16()
+                    .chain(std::iter::once(0))
+                    .collect();
+                unsafe {
+                    windows::Win32::UI::WindowsAndMessaging::MessageBoxW(
+                        None,
+                        windows::core::PCWSTR(text.as_ptr()),
+                        windows::core::PCWSTR(title.as_ptr()),
+                        windows::Win32::UI::WindowsAndMessaging::MB_OK
+                            | windows::Win32::UI::WindowsAndMessaging::MB_ICONERROR,
+                    );
+                }
             }
         }
         glium::winit::event::Event::NewEvents(_) => {
@@ -317,6 +341,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                             exit: false,
                             thread_running: true,
                             license_error: None,
+                            runtime_error: None,
                         }));
                     state.runner_shared = Some(shared.clone());
                     let thread_proxy = proxy.clone();
@@ -530,6 +555,9 @@ fn draw_start_bar(ui: &Ui, state: &mut UiState) {
             if ui.button("Start") {
                 state.start_requested = true;
             }
+            if state.config.coordinate_source == CoordinateSource::Memory {
+                ui.text_wrapped(crate::runner::MEMORY_SOURCE_NOTICE);
+            }
             if ui.button("Exit") {
                 if let Some(ref shared) = state.runner_shared {
                     if let Ok(mut lock) = shared.lock() {
@@ -571,8 +599,7 @@ fn draw_basic_settings(ui: &Ui, state: &mut UiState) {
     if ui.input_int("FPS", &mut fps).build() {
         state.config.fps = fps.max(1) as u32;
     }
-    ui.input_int("Merge Distance", &mut state.config.merge_distance)
-        .build();
+    radio_coordinate_source(ui, "Coordinate Source", &mut state.config.coordinate_source);
 
     let pause_label = if state.binding_target == Some(BindingTarget::Pause) {
         "Pause Keybind: Waiting for input...".to_string()
@@ -617,9 +644,10 @@ fn draw_basic_settings(ui: &Ui, state: &mut UiState) {
     TabBar::new("apbconfig").build(ui, || {
         TabItem::new("Verux Config").build(ui, || {
             ui.text("Copy the path to the [APB Reloaded] folder and paste it below \nSample:\nD:\\SteamLibrary\\steamapps\\common\\APB Reloaded");
-            ui.input_text("Target Folder", &mut state.target_folder).build();
+            ui.input_text("Target Folder", &mut state.config.apb_path)
+                .build();
             if ui.button("Apply verux.config") {
-                let folder = state.target_folder.trim();
+                let folder = state.config.apb_path.trim();
                 if folder.is_empty() {
                     state.status = "Please enter a target folder path.".to_string();
                 } else {
@@ -629,50 +657,32 @@ fn draw_basic_settings(ui: &Ui, state: &mut UiState) {
                     }
                 }
             }
-            if ui.button("Experimental config") {
-                let folder = state.target_folder.trim();
-                if folder.is_empty() {
-                    state.status = "Please enter a target folder path.".to_string();
-                } else {
-                    match crate::config::deploy_experimental_config(folder) {
-                        Ok(_) => state.status = "Config package updated successfully!".to_string(),
-                        Err(e) => state.status = format!("Failed to update config: {e}"),
+            // ImGui hides controls by not submitting them to the current frame.
+            const SHOW_EXPERIMENTAL_CONFIG: bool = false;
+            if SHOW_EXPERIMENTAL_CONFIG {
+                if ui.button("Experimental config") {
+                    let folder = state.config.apb_path.trim();
+                    if folder.is_empty() {
+                        state.status = "Please enter a target folder path.".to_string();
+                    } else {
+                        match crate::config::deploy_experimental_config(folder) {
+                            Ok(_) => state.status = "Config package updated successfully!".to_string(),
+                            Err(e) => state.status = format!("Failed to update config: {e}"),
+                        }
                     }
                 }
+                ui.text("WARNING: EXPERIMENTAL CONFIG WILL TAKE 1HR TO COMPILE ON FIRST USE");
             }
-            ui.text("WARNING: EXPERIMENTAL CONFIG WILL TAKE 1HR TO COMPILE ON FIRST USE");
             if !state.status.is_empty() {
                 ui.text(&state.status);
             }
         });
     });
-
-    if state.show_color_tabs {
-        TabBar::new("picktabs").build(ui, || {
-            TabItem::new("Aimbot Target color").build(ui, || {
-                input_hsv(ui, "HSV Lower", &mut state.config.aimbot_hsv[0].lower);
-                input_hsv(ui, "HSV Upper", &mut state.config.aimbot_hsv[0].upper);
-            });
-            TabItem::new("Triggerbot Target color").build(ui, || {
-                input_hsv(ui, "HSV Lower", &mut state.config.triggerbot_hsv.lower);
-                input_hsv(ui, "HSV Upper", &mut state.config.triggerbot_hsv.upper);
-            });
-        });
-    }
 }
 
 fn draw_targeting(ui: &Ui, state: &mut UiState) {
-    radio_pixel(ui, "Pixel Acquisition", &mut state.config.pixel_acquisition);
-    input_vec2(ui, "Aim Shift", &mut state.config.aim_shift);
-    ui.checkbox("Highest Pixel", &mut state.config.highest_pixel);
-    ui.checkbox("X Only(Ignores Highest Pixel)", &mut state.config.x_only);
-    ui.checkbox("Rect Filter", &mut state.config.rect_filter);
-    radio_rect_compare(ui, "Rect Operator", &mut state.config.rect_compare);
-    ui.slider("Rect Ratio", -1.0, 1.0, &mut state.config.rect_ratio);
-    ui.checkbox("Area Size Filter", &mut state.config.area_filter);
-    ui.input_int("Minimum Area Size", &mut state.config.area_min)
-        .build();
-    ui.input_int("Maximum Area Size", &mut state.config.area_max)
+    ui.text("APB aiming moves horizontally.");
+    ui.input_int("Aim Shift X", &mut state.config.aim_shift.x)
         .build();
 }
 
@@ -694,6 +704,7 @@ fn draw_aimbot(ui: &Ui, state: &mut UiState) {
         radio_smooth_type(ui, "Smooth Type", &mut state.config.smooth_type);
         ui.slider("Smoothing Value", 1.0, 10.0, &mut state.config.smoothing);
     }
+    ui.checkbox("Predictive Braking", &mut state.config.predictive_braking);
     let mut ramp_enabled = state.config.ramp_time_ms > 0;
     if ui.checkbox("Ramp", &mut ramp_enabled) {
         if ramp_enabled {
@@ -803,6 +814,28 @@ fn draw_misc(ui: &Ui, state: &mut UiState) {
                         crate::config::save_profile(&state.current_save_entry_name, &state.config);
                 }
             }
+            ui.same_line();
+            if ui.button("Refresh APB PID") {
+                match crate::apb_process::find_running_apb_pid() {
+                    Ok(pid) => {
+                        state.apb_pid = Some(pid);
+                        state.apb_process_status.clear();
+                        crate::log_info!("Verified APB.exe process handle for PID {pid}");
+                    }
+                    Err(error) => {
+                        state.apb_pid = None;
+                        state.apb_process_status = error;
+                        crate::log_err!("APB process refresh failed: {}", state.apb_process_status);
+                    }
+                }
+            }
+            if let Some(pid) = state.apb_pid {
+                ui.text(format!("APB PID: {pid} (verified on refresh)"));
+            } else if !state.apb_process_status.is_empty() {
+                ui.text_wrapped(&state.apb_process_status);
+            } else {
+                ui.text("APB PID: not checked");
+            }
 
             let rates = vec!["125 Hz", "250 Hz", "500 Hz", "1000 Hz"];
             let mut selected_rate_idx = match state.config.mouse_polling_rate {
@@ -863,29 +896,6 @@ fn input_vec2(ui: &Ui, label: &str, value: &mut Vec2i) {
     }
 }
 
-fn input_hsv(ui: &Ui, label: &str, value: &mut [u8; 3]) {
-    let mut data = [value[0] as i32, value[1] as i32, value[2] as i32];
-    if ui.input_int3(label, &mut data).build() {
-        for (out, input) in value.iter_mut().zip(data) {
-            *out = input.clamp(0, 255) as u8;
-        }
-    }
-}
-
-fn radio_pixel(ui: &Ui, label: &str, value: &mut PixelAcquisition) {
-    ui.text(label);
-    ui.radio_button("contouring", value, PixelAcquisition::Contouring);
-    ui.same_line();
-    ui.radio_button("edging", value, PixelAcquisition::Edging);
-}
-
-fn radio_rect_compare(ui: &Ui, label: &str, value: &mut RectCompare) {
-    ui.text(label);
-    ui.radio_button("Greater than", value, RectCompare::GreaterThan);
-    ui.same_line();
-    ui.radio_button("Less than", value, RectCompare::LessThan);
-}
-
 fn radio_aim_activation(ui: &Ui, label: &str, value: &mut AimActivation) {
     ui.text(label);
     ui.radio_button("Toggle", value, AimActivation::Toggle);
@@ -902,6 +912,13 @@ fn radio_trigger_activation(ui: &Ui, label: &str, value: &mut TriggerActivation)
     ui.radio_button("Hold", value, TriggerActivation::Hold);
     ui.same_line();
     ui.radio_button("Double Crouch", value, TriggerActivation::DoubleCrouch);
+}
+
+fn radio_coordinate_source(ui: &Ui, label: &str, value: &mut CoordinateSource) {
+    ui.text(label);
+    ui.radio_button("Color Detection", value, CoordinateSource::ColorDetection);
+    ui.same_line();
+    ui.radio_button("Memory", value, CoordinateSource::Memory);
 }
 
 fn radio_smooth_type(ui: &Ui, label: &str, value: &mut SmoothType) {
@@ -927,6 +944,8 @@ fn radio_ease(ui: &Ui, label: &str, value: &mut EaseCurve) {
     ui.radio_button("linear", value, EaseCurve::Linear);
     ui.same_line();
     ui.radio_button("smoothstep", value, EaseCurve::Smoothstep);
+    ui.same_line();
+    ui.radio_button("S-curve", value, EaseCurve::Smootherstep);
     ui.same_line();
     ui.radio_button("quad", value, EaseCurve::Quad);
     ui.same_line();

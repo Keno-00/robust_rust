@@ -46,6 +46,12 @@ pub enum PixelAcquisition {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoordinateSource {
+    ColorDetection,
+    Memory,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RectCompare {
     GreaterThan,
     LessThan,
@@ -83,6 +89,7 @@ pub enum RampApply {
 pub enum EaseCurve {
     Linear,
     Smoothstep,
+    Smootherstep,
     Quad,
     Cubic,
 }
@@ -100,6 +107,7 @@ pub struct ProfileConfig {
     pub grab_resolution: Vec2i,
     pub grab_shift: Vec2i,
     pub aim_shift: Vec2i,
+    pub coordinate_source: CoordinateSource,
     pub aimbot_hsv: [HsvRange; 3],
     pub triggerbot_hsv: HsvRange,
     pub aimbot: bool,
@@ -110,6 +118,7 @@ pub struct ProfileConfig {
     pub smoothbot: bool,
     pub smooth_type: SmoothType,
     pub smoothing: f32,
+    pub predictive_braking: bool,
     pub trigger_threshold: i32,
     pub trigger_delay_ms: u32,
     pub aim_key: u32,
@@ -164,6 +173,7 @@ impl Default for ProfileConfig {
             grab_resolution: Vec2i::new(500, 500),
             grab_shift: Vec2i::new(0, 0),
             aim_shift: Vec2i::new(0, 0),
+            coordinate_source: CoordinateSource::ColorDetection,
             aimbot_hsv: [
                 HsvRange::new([105, 214, 240], [135, 244, 255]),
                 HsvRange::new([105, 227, 140], [135, 255, 170]),
@@ -178,6 +188,7 @@ impl Default for ProfileConfig {
             smoothbot: false,
             smooth_type: SmoothType::Linear,
             smoothing: 2.5,
+            predictive_braking: false,
             trigger_threshold: 10,
             trigger_delay_ms: 30,
             aim_key: 112,
@@ -215,7 +226,7 @@ impl Default for ProfileConfig {
             ramp_time_ms: 280,
             ramp_idle_reset_ms: 30,
             ramp_apply: RampApply::Delta,
-            ramp_ease: EaseCurve::Linear,
+            ramp_ease: EaseCurve::Smootherstep,
             proximity_charge: false,
             proximity_distance: 50,
             proximity_build_ms: 700,
@@ -289,6 +300,13 @@ impl ProfileConfig {
         if let Some(v) = map.get("aim_shift").and_then(|s| parse_vec2(s)) {
             cfg.aim_shift = v;
         }
+        if let Some(v) = map.get("coordinate_source") {
+            cfg.coordinate_source = match v.as_str() {
+                "memory" | "Memory" => CoordinateSource::Memory,
+                "color" | "ColorDetection" | "Color Detection" => CoordinateSource::ColorDetection,
+                _ => cfg.coordinate_source,
+            };
+        }
 
         if let Some(v) = map.get("aimbot_hsv_lower").and_then(|s| parse_hsv(s)) {
             cfg.aimbot_hsv[0].lower = v;
@@ -357,6 +375,9 @@ impl ProfileConfig {
         }
         if let Some(v) = map.get("smoothing").and_then(|s| s.parse().ok()) {
             cfg.smoothing = v;
+        }
+        if let Some(v) = map.get("PredictiveBraking") {
+            cfg.predictive_braking = parse_bool(v);
         }
         if let Some(v) = map.get("trigthresh").and_then(|s| s.parse().ok()) {
             cfg.trigger_threshold = v;
@@ -493,6 +514,7 @@ impl ProfileConfig {
             cfg.ramp_ease = match v.as_str() {
                 "linear" => EaseCurve::Linear,
                 "smoothstep" => EaseCurve::Smoothstep,
+                "smootherstep" => EaseCurve::Smootherstep,
                 "quad" => EaseCurve::Quad,
                 "cubic" => EaseCurve::Cubic,
                 _ => cfg.ramp_ease,
@@ -519,6 +541,7 @@ impl ProfileConfig {
             cfg.proximity_ease = match v.as_str() {
                 "linear" => EaseCurve::Linear,
                 "smoothstep" => EaseCurve::Smoothstep,
+                "smootherstep" => EaseCurve::Smootherstep,
                 "quad" => EaseCurve::Quad,
                 "cubic" => EaseCurve::Cubic,
                 _ => cfg.proximity_ease,
@@ -554,6 +577,13 @@ impl ProfileConfig {
         );
         map.insert("grab_shift".to_string(), format_vec2(self.grab_shift));
         map.insert("aim_shift".to_string(), format_vec2(self.aim_shift));
+        map.insert(
+            "coordinate_source".to_string(),
+            match self.coordinate_source {
+                CoordinateSource::ColorDetection => "color".to_string(),
+                CoordinateSource::Memory => "memory".to_string(),
+            },
+        );
 
         map.insert(
             "aimbot_hsv_lower".to_string(),
@@ -629,6 +659,10 @@ impl ProfileConfig {
             },
         );
         map.insert("smoothing".to_string(), self.smoothing.to_string());
+        map.insert(
+            "PredictiveBraking".to_string(),
+            format_bool(self.predictive_braking),
+        );
         map.insert("trigthresh".to_string(), self.trigger_threshold.to_string());
         map.insert("delay".to_string(), self.trigger_delay_ms.to_string());
 
@@ -709,6 +743,7 @@ impl ProfileConfig {
             match self.ramp_ease {
                 EaseCurve::Linear => "linear".to_string(),
                 EaseCurve::Smoothstep => "smoothstep".to_string(),
+                EaseCurve::Smootherstep => "smootherstep".to_string(),
                 EaseCurve::Quad => "quad".to_string(),
                 EaseCurve::Cubic => "cubic".to_string(),
             },
@@ -738,6 +773,7 @@ impl ProfileConfig {
             match self.proximity_ease {
                 EaseCurve::Linear => "linear".to_string(),
                 EaseCurve::Smoothstep => "smoothstep".to_string(),
+                EaseCurve::Smootherstep => "smootherstep".to_string(),
                 EaseCurve::Quad => "quad".to_string(),
                 EaseCurve::Cubic => "cubic".to_string(),
             },
@@ -931,6 +967,8 @@ pub fn save_license_key(key: &str) -> std::io::Result<()> {
 }
 
 const DEFAULT_UI_INI: &[u8] = include_bytes!("../assets/src_ini/DefaultUI.ini");
+const DEFAULT_GAME_INI: &[u8] = include_bytes!("../assets/src_ini/DefaultGame.ini");
+const APB_COMPAT_INI: &[u8] = include_bytes!("../assets/src_ini/APBCompat.ini");
 const BASE_UI_INI: &[u8] = include_bytes!("../assets/src_ini/BaseUI.ini");
 const APB_UBER_SHADERS: &[u8] =
     include_bytes!("../assets/src_ini/APBUberPostProcessBlendPixelShader.usf");
@@ -949,6 +987,8 @@ pub fn deploy_verux_config(target_dir: &str) -> std::io::Result<()> {
     fs::create_dir_all(&engine_shaders_dir)?;
 
     fs::write(apb_config_dir.join("DefaultUI.ini"), DEFAULT_UI_INI)?;
+    fs::write(apb_config_dir.join("DefaultGame.ini"), DEFAULT_GAME_INI)?;
+    fs::write(apb_config_dir.join("APBCompat.ini"), APB_COMPAT_INI)?;
     fs::write(engine_config_dir.join("BaseUI.ini"), BASE_UI_INI)?;
     fs::write(
         engine_shaders_dir.join("APBUberPostProcessBlendPixelShader.usf"),
@@ -970,6 +1010,8 @@ pub fn deploy_experimental_config(target_dir: &str) -> std::io::Result<()> {
     fs::create_dir_all(&engine_shaders_dir)?;
 
     fs::write(apb_config_dir.join("DefaultUI.ini"), DEFAULT_UI_INI)?;
+    fs::write(apb_config_dir.join("DefaultGame.ini"), DEFAULT_GAME_INI)?;
+    fs::write(apb_config_dir.join("APBCompat.ini"), APB_COMPAT_INI)?;
     fs::write(engine_config_dir.join("BaseUI.ini"), BASE_UI_INI)?;
     fs::write(
         engine_shaders_dir.join("APBUberPostProcessBlendPixelShader.usf"),

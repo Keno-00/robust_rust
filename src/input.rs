@@ -3,7 +3,7 @@ use std::time::Duration;
 
 pub const ARDUINO_BAUD_RATE: u32 = 115_200;
 pub const DEFAULT_SERIAL_TIMEOUT: Duration = Duration::from_millis(100);
-pub const SHOOT_COMMAND: &[u8] = b"shoot";
+pub const SHOOT_COMMAND: &[u8] = b"shoot\n";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputBackend {
@@ -11,7 +11,7 @@ pub enum InputBackend {
 }
 
 pub fn encode_move(dx: i32, dy: i32) -> String {
-    format!("{dx}:{dy}")
+    format!("{dx}:{dy}\n")
 }
 
 pub struct ArduinoTransport<W> {
@@ -57,8 +57,8 @@ mod tests {
 
     #[test]
     fn encodes_python_arduino_move_protocol() {
-        assert_eq!(encode_move(12, -7), "12:-7");
-        assert_eq!(encode_move(0, 0), "0:0");
+        assert_eq!(encode_move(12, -7), "12:-7\n");
+        assert_eq!(encode_move(0, 0), "0:0\n");
     }
 
     #[test]
@@ -66,7 +66,7 @@ mod tests {
         let mut transport = ArduinoTransport::new(Vec::<u8>::new());
         transport.move_mouse(14, -27).unwrap();
 
-        assert_eq!(transport.into_inner(), b"14:-27");
+        assert_eq!(transport.into_inner(), b"14:-27\n");
     }
 
     #[test]
@@ -74,6 +74,6 @@ mod tests {
         let mut transport = ArduinoTransport::new(Vec::<u8>::new());
         transport.shoot().unwrap();
 
-        assert_eq!(transport.into_inner(), SHOOT_COMMAND);
+        assert_eq!(transport.into_inner(), b"shoot\n");
     }
 }

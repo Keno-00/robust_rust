@@ -7,13 +7,13 @@
 
 #define SET_COLORGRADING 0 // Color grading: 1 = On, 0 = off
 
+// Keep 30% of the original color saturation.
+#define COLOR_SATURATION 0.30f
+
 // Color grading parameters.
 #if SET_COLORGRADING
     sampler2D ColorGradingLUT;
 #endif
-
-// The per-color weighting to be used for luminance calculations in RGB order.
-static const float3 LuminanceVector = float3(0.3, 0.59, 0.11);
 
 void Main(
     in float2 UV : TEXCOORD0,
@@ -23,24 +23,15 @@ void Main(
 {
     float4 sceneColor = tex2D(SceneColorTexture, SceneUV);
 
-    // Reduce transparency to one-third
-    sceneColor.a *= 1.0f / 3.0f;
-
-    float3 AdjustedColor = sceneColor.rgb;
-
-    // Red-to-Grayscale conversion with washed-out effect
-    if (sceneColor.r > sceneColor.g && sceneColor.r > sceneColor.b)
-    {
-        float grayscale = dot(sceneColor.rgb, LuminanceVector);
-        AdjustedColor.r = lerp(grayscale, sceneColor.r, 0.01f);
-        AdjustedColor.g = lerp(grayscale, sceneColor.g, 0.01f);
-        AdjustedColor.b = lerp(grayscale, sceneColor.b, 0.75f);
-    }
-
+    float3 FinalColor;
     #if SET_COLORGRADING
-        float3 FinalColor = ColorLookupTable(ColorGradingLUT, AdjustedColor);
-        OutColor = float4(FinalColor, sceneColor.a);
+        FinalColor = ColorLookupTable(ColorGradingLUT, sceneColor.rgb);
     #else
-        OutColor = float4(AdjustedColor, sceneColor.a);
+        FinalColor = sceneColor.rgb;
     #endif
+
+    float luminance = dot(FinalColor, float3(0.2126f, 0.7152f, 0.0722f));
+    float3 DesaturatedColor = lerp(float3(luminance, luminance, luminance), FinalColor, COLOR_SATURATION);
+
+    OutColor = float4(DesaturatedColor, sceneColor.a);
 }

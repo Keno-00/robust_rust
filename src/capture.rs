@@ -15,8 +15,10 @@ use windows::Win32::Graphics::Direct3D11::{
 };
 use windows::Win32::Graphics::Dxgi::{
     IDXGIDevice, IDXGIOutput1, IDXGIOutputDuplication,
-    DXGI_ERROR_ACCESS_LOST, DXGI_OUTDUPL_FRAME_INFO,
+    DXGI_ERROR_ACCESS_LOST, DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO,
 };
+use std::time::{Duration, Instant};
+use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC,
 };
@@ -184,6 +186,9 @@ pub struct DxgiCapture {
     staging_texture: Option<ID3D11Texture2D>,
     width: u32,
     height: u32,
+    performance_frequency: i64,
+    last_present_counter: i64,
+    fresh_presented_at: Option<Instant>,
 }
 
 impl DxgiCapture {
@@ -208,6 +213,12 @@ impl DxgiCapture {
 
             let device = device.ok_or_else(|| "D3D11 Device is None".to_string())?;
             let context = context.ok_or_else(|| "D3D11 Context is None".to_string())?;
+            let mut performance_frequency = 0;
+            QueryPerformanceFrequency(&mut performance_frequency)
+                .map_err(|e| format!("Failed to read capture timing frequency: {e}"))?;
+            if performance_frequency <= 0 {
+                return Err("Capture timing frequency must be positive".into());
+            }
 
             let mut capture = Self {
                 device,
@@ -216,6 +227,9 @@ impl DxgiCapture {
                 staging_texture: None,
                 width,
                 height,
+                performance_frequency,
+                last_present_counter: 0,
+                fresh_presented_at: None,
             };
 
             // Try initial duplication setup
@@ -263,6 +277,7 @@ impl DxgiCapture {
         top: i32,
         buf: &mut Vec<u8>,
     ) -> Result<(), String> {
+        self.fresh_presented_at = None;
         unsafe {
             // Ensure duplication is initialized
             let dup = match self.ensure_duplication() {
@@ -283,9 +298,12 @@ impl DxgiCapture {
                         self.duplication = None;
                         return Err("DXGI duplication access lost, resetting...".to_string());
                     }
-                    // If it's a timeout (DXGI_ERROR_WAIT_TIMEOUT), we just return without modifying the buffer.
-                    // This reuses the last captured frame's contents, keeping the loop stable.
-                    return Ok(());
+                    if hresult == DXGI_ERROR_WAIT_TIMEOUT {
+                        // Legacy callers may reuse the buffer; predictive braking
+                        // sees no new presentation and does not identify another sample.
+                        return Ok(());
+                    }
+                    return Err(format!("AcquireNextFrame failed: {e}"));
                 }
             }
 
@@ -371,8 +389,28 @@ impl DxgiCapture {
 
             self.context.Unmap(staging, 0);
 
+            // Pointer-only updates have LastPresentTime=0 and are not new game
+            // measurements. Timestamp the image, rather than the end of its copy.
+            if frame_info.LastPresentTime > 0
+                && frame_info.LastPresentTime != self.last_present_counter
+            {
+                let mut current_counter = 0;
+                QueryPerformanceCounter(&mut current_counter)
+                    .map_err(|e| format!("Failed to read capture presentation timing: {e}"))?;
+                let age_ticks = current_counter.checked_sub(frame_info.LastPresentTime)
+                    .filter(|ticks| *ticks >= 0)
+                    .ok_or_else(|| "DXGI presentation timestamp is later than the capture clock".to_string())?;
+                let age_s = age_ticks as f64 / self.performance_frequency as f64;
+                self.fresh_presented_at = Instant::now().checked_sub(Duration::from_secs_f64(age_s));
+                self.last_present_counter = frame_info.LastPresentTime;
+            }
+
             Ok(())
         }
+    }
+
+    pub fn fresh_presented_at(&self) -> Option<Instant> {
+        self.fresh_presented_at
     }
 }
 

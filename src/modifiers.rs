@@ -10,6 +10,8 @@ pub fn ease_factor(t: f64, curve: EaseCurve) -> f64 {
     match curve {
         EaseCurve::Linear => t,
         EaseCurve::Smoothstep => t * t * (3.0 - (2.0 * t)),
+        // Quintic S curve: first and second derivatives vanish at both endpoints.
+        EaseCurve::Smootherstep => t * t * t * (t * (6.0 * t - 15.0) + 10.0),
         EaseCurve::Quad => t * t,
         EaseCurve::Cubic => t * t * t,
     }

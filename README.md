@@ -43,6 +43,16 @@ version with cleaner boundaries.
 
 ## Tooling note
 
+The active APB detector now deliberately differs from the Python detector: fixed
+BGR red thresholds, horizontal binary-mask reduction, per-name grouping, and
+horizontal-only movement replace the configurable HSV/morphology path. Existing
+profile files remain readable; legacy detection controls are inactive. See
+[APB detector behavior and build instructions](docs/APB_DETECTOR.md).
+
+Optional curve-matched predictive braking adds one checkbox and a persisted opt-in
+profile value. Its future-landing estimate and movement limits are
+documented in [Predictive braking](docs/PREDICTIVE_BRAKING.md).
+
 Rust tooling was not available on this machine when the scaffold was created.
 Install Rust with `rustup`, then run:
 
