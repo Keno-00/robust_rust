@@ -362,9 +362,13 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
             Ok(s) => s,
             Err(_) => return, // poisoned mutex, exit thread
         };
-        (state.config.clone(), state.com_port.clone())
+        (state.config.effective_config(), state.com_port.clone())
     };
 
+    if let Err(error) = config.validate_eligibility() {
+        report_runtime_error(&shared_state, &event_proxy, error);
+        return;
+    }
     if config.unicorn && algorithms.is_none() {
         report_runtime_error(&shared_state, &event_proxy, "Preparation is required. Return to the window and press Start.".into());
         return;
@@ -1175,7 +1179,11 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
             let raw_dx = t.x + config.unicorn_shift.x;
             let raw_dy = if unicorn_active {
                 memory_target
-                    .map(|target| vertical_correction.delta(target))
+                    .map(|target| match config.vertical_tracking {
+                        crate::config::VerticalTracking::Current => vertical_correction.delta(target),
+                        crate::config::VerticalTracking::NoY => 0,
+                        mode => crate::atlas_unicorn::approximate_delta(target, mode, config.vertical_points),
+                    })
                     .unwrap_or(0)
             } else {
                 0
@@ -1247,7 +1255,8 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
                         }
                     }
                 }
-                let incidental_y = _cleanup.inference.as_ref().is_some_and(|c| c.incidental_vertical()) && config.ml_unicorn_influence>0.0;
+                if config.vertical_tracking == crate::config::VerticalTracking::NoY { desired.1 = 0.0; }
+                let incidental_y = config.vertical_tracking != crate::config::VerticalTracking::NoY && _cleanup.inference.as_ref().is_some_and(|c| c.incidental_vertical()) && config.ml_unicorn_influence>0.0;
                 let (unicorn_dx, unicorn_dy) = if config.drift_guard {
                     let (desired, desired_y) = desired;
                     let presented_at = fresh_presented_at.unwrap();

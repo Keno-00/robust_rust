@@ -1,6 +1,12 @@
 use serde::{Deserialize, Serialize};
 pub const SCHEMA: u32 = 2;
+#[cfg(not(feature = "color-only"))]
 pub const PRODUCT: &str = "verux-apb";
+#[cfg(feature = "color-only" )]
+pub const PRODUCT: &str = "verux-apb-cb";
+pub(crate) fn source_allowed(source: &str) -> bool {
+    source == "color" || (!cfg!(feature = "color-only") && source == "memory")
+}
 pub const FLICK_TRIALS: usize = 60;
 pub const TRACK_TRIALS: usize = 10;
 pub(crate) const BASIS: usize = 12;

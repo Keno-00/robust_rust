@@ -26,4 +26,8 @@
 ### UI
 
 - Do not, in any circumstance, disobey the current UI style.
-- Do not add unnecessary expository text. 
+- Do not add unnecessary expository text.
+## Downstream feature design (internal)
+
+- Before changing feature eligibility, source behavior, category placement or edition availability, read `docs/internal/DOWNSTREAM_DESIGN.md` and follow its single eligibility contract and user-deliberation procedure.
+- That document and other `docs/internal` materials are source-internal; do not package or embed them in customer flows.

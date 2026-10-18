@@ -236,8 +236,8 @@ impl Session {
 }
 
 pub fn run(id: String, source: String) -> Result<bool, String> {
-    if !matches!(source.as_str(), "color" | "memory") {
-        return Err("Dataset requires --ml-source color or memory.".into());
+    if !crate::ml_unicorn::source_allowed(&source) {
+        return Err("Dataset source is unavailable in this edition. Choose an eligible coordinate source.".into());
     }
     let runtime=crate::mosaic_runtime::DatasetRuntime::receive()?;
     let store = Store::open()?;

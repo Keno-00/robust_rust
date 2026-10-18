@@ -64,7 +64,7 @@ fn predict(p: &Personality, x: &[f64; FEATURES]) -> [f64; 2] {
 
 pub fn train(data: &[Dataset], id: String, created_at: u64) -> Result<Model, String> {
     let source = data[0].source.clone();
-    if source != "color" && source != "memory" {
+    if !crate::ml_aim::source_allowed(&source) {
         return Err("Personality dataset needs an explicit color or memory source.".into());
     }
     if data
@@ -265,7 +265,7 @@ pub fn train(data: &[Dataset], id: String, created_at: u64) -> Result<Model, Str
 
 impl Personality {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.source.as_str(), "color" | "memory")
+        if !crate::ml_aim::source_allowed(&self.source)
             || self.flicks.is_empty()
             || self.sequences.is_empty()
             || self.flicks.len() > 10000

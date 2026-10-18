@@ -47,7 +47,7 @@ pub(crate) fn read(path: &Path) -> io::Result<Sections> {
         let mut envelope: Envelope = serde_json::from_slice(&bytes).map_err(|_| {
             io::Error::other("Encrypted profile data is invalid. Restore a verified backup.")
         })?;
-        if envelope.product != "verux.apb" || envelope.version != 1 {
+        if envelope.product != crate::passport::PRODUCT_ID || envelope.version != 1 {
             return Err(io::Error::other(
                 "Encrypted profile belongs to a different product or version.",
             ));
@@ -59,7 +59,8 @@ pub(crate) fn read(path: &Path) -> io::Result<Sections> {
         if changed {
             write(path, &envelope.sections)?;
             crate::log_info!(
-                "Migrated encrypted profile aliases for verux.apb: {}",
+                "Migrated encrypted profile aliases for {}: {}",
+                crate::passport::PRODUCT_ID,
                 path.display()
             );
         }
@@ -77,7 +78,8 @@ pub(crate) fn read(path: &Path) -> io::Result<Sections> {
     }
     write(path, &sections)?;
     crate::log_info!(
-        "Imported existing profiles into the verux.apb encrypted vault: {}",
+        "Imported existing profiles into the {} encrypted vault: {}",
+        crate::passport::PRODUCT_ID,
         path.display()
     );
     Ok(sections)
@@ -120,7 +122,7 @@ fn import_ini(raw: &str) -> io::Result<Sections> {
 
 pub(crate) fn write(path: &Path, sections: &Sections) -> io::Result<()> {
     let envelope = Envelope {
-        product: "verux.apb".into(),
+        product: crate::passport::PRODUCT_ID.into(),
         version: 1,
         sections: sections.clone(),
     };

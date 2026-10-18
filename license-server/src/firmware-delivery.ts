@@ -5,6 +5,7 @@ import { RequestFailure } from "./request-security";
 export interface FirmwareEnv {
   ALGORITHM_ARTIFACTS: R2Bucket;
   LEONARDO_FIRMWARE_TEMPLATE: string;
+  APB_CB_LEONARDO_FIRMWARE_TEMPLATE: string;
 }
 interface Template { version: string; digest: string; descriptor_offset: number }
 const fail = (code: string): never => { throw new RequestFailure(503, code, "Firmware installation is unavailable. Contact support."); };
@@ -56,7 +57,9 @@ function personalize(image: Uint8Array, offset: number, vid: number, pid: number
 }
 
 export async function deliverFirmware(body: Record<string, unknown>, env: FirmwareEnv, sessionHash: string, expiresAt: number): Promise<Response> {
-  if (body.product_id !== "verux.apb" || body.firmware_id !== "leonardo-mouse"
+  const product = body.product_id === "verux.apb" ? "verux.apb"
+    : body.product_id === "verux.apb.cb" ? "verux.apb.cb" : null;
+  if (!product || body.firmware_id !== "leonardo-mouse"
     || body.board_model !== "arduino-leonardo" || body.mcu_signature !== "1e9587"
     || !Number.isInteger(body.target_vid) || !Number.isInteger(body.target_pid)
     || (body.target_vid as number) < 1 || (body.target_vid as number) > 65535
@@ -67,12 +70,12 @@ export async function deliverFirmware(body: Record<string, unknown>, env: Firmwa
   const recipient = decode64(body.recipient_key);
   if (recipient.length !== 65 || recipient[0] !== 4) throw new RequestFailure(400, "invalid_recipient", "Restart the application and retry Install.");
   let selected: Template;
-  try { selected = JSON.parse(env.LEONARDO_FIRMWARE_TEMPLATE) as Template; }
+  try { selected = JSON.parse(product === "verux.apb.cb" ? env.APB_CB_LEONARDO_FIRMWARE_TEMPLATE : env.LEONARDO_FIRMWARE_TEMPLATE) as Template; }
   catch { fail("firmware_template"); }
   if (!selected! || typeof selected! !== "object" || typeof selected!.digest !== "string"
     || typeof selected!.version !== "string" || !/^[a-f0-9]{64}$/.test(selected!.digest)
     || !/^[0-9A-Za-z.-]{1,64}$/.test(selected!.version) || !Number.isSafeInteger(selected!.descriptor_offset)) fail("firmware_template");
-  const object = await env.ALGORITHM_ARTIFACTS.get(`verux.apb/firmware/leonardo/template/${selected!.version}/${selected!.digest}.hex`);
+  const object = await env.ALGORITHM_ARTIFACTS.get(`${product}/firmware/leonardo/template/${selected!.version}/${selected!.digest}.hex`);
   if (!object || object.size === 0 || object.size > 128 * 1024) fail("firmware_unavailable");
   const bytes = new Uint8Array(await object!.arrayBuffer());
   let image: Uint8Array | undefined, personalized: Uint8Array | undefined;
@@ -82,7 +85,7 @@ export async function deliverFirmware(body: Record<string, unknown>, env: Firmwa
     image = applicationImage(bytes);
     personalized = personalize(image,selected!.descriptor_offset,body.target_vid as number,body.target_pid as number);
     const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",personalized)),b=>b.toString(16).padStart(2,"0")).join("");
-    const manifest = JSON.stringify({ product_id:"verux.apb", firmware_id:"leonardo-mouse", firmware_version:selected!.version,
+    const manifest = JSON.stringify({ product_id:product, firmware_id:"leonardo-mouse", firmware_version:selected!.version,
       board_model:"arduino-leonardo", mcu_signature:"1e9587", application_start:0, application_end:28672,
       target_vid:body.target_vid, target_pid:body.target_pid, digest, size:personalized.length,
       session_hash:sessionHash, recipient_key:body.recipient_key, request_nonce:body.request_nonce, expires_at:expiresAt });

@@ -22,6 +22,7 @@ export interface Env extends SigningEnv, AlgorithmEnv, FirmwareEnv {
   DISCORD_NETWORK_RATE_LIMITER: RateLimit;
   PAYHIP_PRODUCT_SECRET?: string;
   PAYHIP_PRODUCT_SECRET_APB?: string;
+  PAYHIP_PRODUCT_SECRET_APB_CB?: string;
   PAYHIP_PRODUCT_SECRET_SM?: string;
   LICENSE_HASH_SECRET: string;
   DISCORD_WEBHOOK_URL?: string;
@@ -29,8 +30,10 @@ export interface Env extends SigningEnv, AlgorithmEnv, FirmwareEnv {
   DISCORD_APPLICATION_ID: string;
   APP_ENABLED: string;
   APB_PAYHIP_PRODUCT_NAMES: string;
+  APB_CB_PAYHIP_PRODUCT_NAMES: string;
   SM_PAYHIP_PRODUCT_NAMES: string;
   APB_MIN_CLIENT_VERSION: string;
+  APB_CB_MIN_CLIENT_VERSION: string;
   SM_MIN_CLIENT_VERSION: string;
   HEARTBEAT_INTERVAL_SECONDS: string;
   SESSION_TTL_SECONDS: string;
@@ -40,7 +43,7 @@ export interface Env extends SigningEnv, AlgorithmEnv, FirmwareEnv {
 type JsonObject = Record<string, unknown>;
 
 type Product = {
-  id: "verux.apb" | "verux.sm";
+  id: "verux.apb" | "verux.apb.cb" | "verux.sm";
   displayName: string;
   payhipSecret: string;
   payhipProductNames: string;
@@ -50,6 +53,7 @@ type Product = {
 function requestedProduct(body: JsonObject, env: Env): Product | null {
   const id = stringAt(body, "product_id").toLowerCase();
   if (id === "verux.apb") return { id, displayName: "Verux APB", payhipSecret: env.PAYHIP_PRODUCT_SECRET_APB || env.PAYHIP_PRODUCT_SECRET || "", payhipProductNames: env.APB_PAYHIP_PRODUCT_NAMES, minimumClientVersion: env.APB_MIN_CLIENT_VERSION };
+  if (id === "verux.apb.cb") return { id, displayName: "Verux APB Color", payhipSecret: env.PAYHIP_PRODUCT_SECRET_APB_CB || "", payhipProductNames: env.APB_CB_PAYHIP_PRODUCT_NAMES, minimumClientVersion: env.APB_CB_MIN_CLIENT_VERSION };
   if (id === "verux.sm") return { id, displayName: "Songmaker", payhipSecret: env.PAYHIP_PRODUCT_SECRET_SM || "", payhipProductNames: env.SM_PAYHIP_PRODUCT_NAMES, minimumClientVersion: env.SM_MIN_CLIENT_VERSION };
   return null;
 }

@@ -81,6 +81,18 @@ pub struct RuntimeRequirements {
     pub quill: bool,
 }
 
+/// Effective capability gates shared by UI, preparation, and runtime.
+#[derive(Debug, Clone, Copy)]
+pub struct FeatureEligibility {
+    pub memory: bool,
+    pub aim: bool,
+    pub trigger: bool,
+    pub memory_aim: bool,
+    pub color_aim: bool,
+    pub memory_trigger: bool,
+    pub color_trigger: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuroraStyle {
     Boxes,
@@ -91,6 +103,16 @@ pub enum AuroraStyle {
 pub enum UnicornLineOrigin {
     Center,
     Top,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerticalTracking {
+    Current, NoY, Head, Neck, Torso, Feet, ClosestPoint,
+}
+impl VerticalTracking {
+    fn key(self) -> &'static str {
+        match self { Self::Current => "current", Self::NoY => "no_y", Self::Head => "head", Self::Neck => "neck", Self::Torso => "torso", Self::Feet => "feet", Self::ClosestPoint => "closest_point" }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,6 +178,7 @@ pub struct ProfileConfig {
     pub grab_shift: Vec2i,
     pub unicorn_shift: Vec2i,
     pub coordinate_source: CoordinateSource,
+    pub memory_features: bool,
     pub pegasus_source: CoordinateSource,
     pub comet: bool,
     pub comet_jade: bool,
@@ -173,6 +196,8 @@ pub struct ProfileConfig {
     pub aurora_style: AuroraStyle,
     pub show_distance: bool,
     pub orbit_order: OrbitOrder,
+    pub vertical_tracking: VerticalTracking,
+    pub vertical_points: [bool; 4],
     pub orbit_filter: LanternFilter,
     pub prism_only: bool,
     pub opponent_color: Rgb,
@@ -254,6 +279,7 @@ impl Default for ProfileConfig {
             grab_shift: Vec2i::new(0, 0),
             unicorn_shift: Vec2i::new(0, 0),
             coordinate_source: CoordinateSource::ColorDetection,
+            memory_features: true,
             pegasus_source: CoordinateSource::Memory,
             comet: false,
             comet_jade: false,
@@ -271,6 +297,8 @@ impl Default for ProfileConfig {
             aurora_style: AuroraStyle::Boxes,
             show_distance: false,
             orbit_order: OrbitOrder::ClosestUnicorn,
+            vertical_tracking: VerticalTracking::Current,
+            vertical_points: [true; 4],
             orbit_filter: LanternFilter::Opponents,
             prism_only: true,
             opponent_color: Rgb::new(255, 70, 70),
@@ -349,17 +377,72 @@ impl Default for ProfileConfig {
     }
 }
 impl ProfileConfig {
+    pub fn eligibility(&self) -> FeatureEligibility {
+        let memory = self.memory_features && crate::edition::memory_available();
+        let memory_aim = self.unicorn && memory && self.coordinate_source == CoordinateSource::Memory;
+        let color_aim = self.unicorn && self.coordinate_source == CoordinateSource::ColorDetection;
+        let memory_trigger = self.pegasus && memory && self.pegasus_source == CoordinateSource::Memory;
+        let color_trigger = self.pegasus && self.pegasus_source == CoordinateSource::ColorDetection;
+        FeatureEligibility { memory, aim: memory_aim || color_aim, trigger: memory_trigger || color_trigger,
+            memory_aim, color_aim, memory_trigger, color_trigger }
+    }
+
+    /// Preserve saved choices while removing consumers whose parents are unavailable.
+    /// Sources never change implicitly: an unavailable selected source disables its consumer.
+    pub fn effective_config(&self) -> Self {
+        let eligible = self.eligibility();
+        let mut effective = self.clone();
+        effective.memory_features = eligible.memory;
+        effective.unicorn = eligible.aim;
+        effective.pegasus = eligible.trigger;
+        if !eligible.memory {
+            effective.lanterns = false;
+            effective.comet = false;
+            effective.jade = false;
+            effective.wisps = false;
+        }
+        effective.comet_jade &= effective.comet;
+        if !eligible.aim {
+            effective.ml_unicorn_enabled = false;
+            effective.drift_guard = false;
+            effective.beesmas = false;
+            effective.velvet_charge = false;
+            effective.lines = false;
+            effective.unicorn_target_box = false;
+        }
+        if !eligible.memory_aim {
+
+            effective.orbit_order = OrbitOrder::ClosestUnicorn;
+            effective.prism_only = false;
+        }
+        effective.pegasus_activates_unicorn &= eligible.aim && eligible.trigger && effective.pegasus_unicorn_supported();
+        effective
+    }
+
+    pub fn validate_eligibility(&self) -> Result<(), String> {
+        let eligible = self.eligibility();
+        if eligible.color_aim && !matches!(self.vertical_tracking, VerticalTracking::Current | VerticalTracking::NoY) {
+            return Err("Approximate body points require Memory aim. Select Current or No Y for Color aim.".into());
+        }
+        if eligible.memory_aim && self.vertical_tracking == VerticalTracking::ClosestPoint && !self.vertical_points.iter().any(|enabled| *enabled) {
+            return Err("Closest Point requires at least one approximate point. Select Head, Neck, Torso or Feet.".into());
+        }
+        Ok(())
+    }
+
     pub fn runtime_requirements(&self) -> RuntimeRequirements {
-        let atlas_unicorn = self.unicorn && self.coordinate_source == CoordinateSource::Memory;
-        let memory_pegasus = self.pegasus && self.pegasus_source == CoordinateSource::Memory;
-        let color_unicorn = self.unicorn && self.coordinate_source == CoordinateSource::ColorDetection;
-        let color_pegasus = self.pegasus && self.pegasus_source == CoordinateSource::ColorDetection;
+        let effective = self.effective_config();
+        let eligibility = self.eligibility();
+        let atlas_unicorn = eligibility.memory_aim;
+        let memory_pegasus = eligibility.memory_trigger;
+        let color_unicorn = eligibility.color_aim;
+        let color_pegasus = eligibility.color_trigger;
         RuntimeRequirements {
             atlas_unicorn, memory_pegasus, color_unicorn, color_pegasus,
-            orchid_atlas: atlas_unicorn || self.lanterns || self.comet || self.jade || self.wisps,
-            screen_canvas: color_unicorn || color_pegasus || (self.unicorn && self.drift_guard),
-            aurora: self.aurora_enabled || self.lanterns || self.comet || self.jade || self.wisps,
-            quill: self.unicorn || self.pegasus,
+            orchid_atlas: atlas_unicorn || effective.lanterns || effective.comet || effective.jade || effective.wisps,
+            screen_canvas: color_unicorn || color_pegasus || (effective.unicorn && effective.drift_guard),
+            aurora: effective.aurora_enabled || effective.lanterns || effective.comet || effective.jade || effective.wisps,
+            quill: effective.unicorn || effective.pegasus,
         }
     }
 
@@ -372,6 +455,17 @@ impl ProfileConfig {
 
     pub fn from_map(map: &HashMap<String, String>) -> Self {
         let mut cfg = Self::default();
+        let parse_bool = |s: &str| -> bool {
+            let s_lower = s.to_lowercase();
+            s_lower == "true" || s_lower == "1" || s_lower == "yes" || s_lower == "on"
+        };
+        if let Some(value) = map.get("vertical_tracking") {
+            cfg.vertical_tracking = match value.as_str() { "no_y" => VerticalTracking::NoY, "head" => VerticalTracking::Head, "neck" => VerticalTracking::Neck, "torso" => VerticalTracking::Torso, "feet" => VerticalTracking::Feet, "closest_point" => VerticalTracking::ClosestPoint, _ => VerticalTracking::Current };
+        }
+        for (index, key) in ["vertical_head", "vertical_neck", "vertical_torso", "vertical_feet"].iter().enumerate() {
+            if let Some(value) = map.get(*key) { cfg.vertical_points[index] = parse_bool(value); }
+        }
+
 
         let parse_vec2 = |s: &str| -> Option<Vec2i> {
             let parts: Vec<&str> = s.split(',').map(|p| p.trim()).collect();
@@ -409,10 +503,7 @@ impl ProfileConfig {
             }
         };
 
-        let parse_bool = |s: &str| -> bool {
-            let s_lower = s.to_lowercase();
-            s_lower == "true" || s_lower == "1" || s_lower == "yes" || s_lower == "on"
-        };
+
 
         if let Some(v) = map.get("com_port") {
             let port = v.trim();
@@ -433,6 +524,7 @@ impl ProfileConfig {
         if let Some(v) = map.get("unicorn_shift").and_then(|s| parse_vec2(s)) {
             cfg.unicorn_shift = v;
         }
+        if let Some(v) = map.get("memory_features") { cfg.memory_features = parse_bool(v); }
         if let Some(v) = map.get("coordinate_source") {
             cfg.coordinate_source = match v.as_str() {
                 "memory" | "Memory" => CoordinateSource::Memory,
@@ -818,6 +910,11 @@ impl ProfileConfig {
             "lanterns".into(),
             format_bool(self.lanterns),
         );
+        map.insert("memory_features".into(), format_bool(self.memory_features));
+        map.insert("vertical_tracking".into(), self.vertical_tracking.key().into());
+        for (key, enabled) in ["vertical_head", "vertical_neck", "vertical_torso", "vertical_feet"].into_iter().zip(self.vertical_points) {
+            map.insert(key.into(), format_bool(enabled));
+        }
         map.insert("comet_jade".into(), format_bool(self.comet_jade));
         map.insert("comet".into(), format_bool(self.comet));
         map.insert("jade".into(), format_bool(self.jade));
@@ -1184,7 +1281,7 @@ pub fn get_config_path() -> PathBuf {
     let home = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\".to_string());
     PathBuf::from(home)
         .join("Documents")
-        .join("VeruxAPB")
+        .join(crate::passport::APP_DIRECTORY)
         .join("config.ini")
 }
 
@@ -1215,7 +1312,7 @@ pub fn get_login_path() -> PathBuf {
     let home = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\".to_string());
     PathBuf::from(home)
         .join("Documents")
-        .join("VeruxAPB")
+        .join(crate::passport::APP_DIRECTORY)
         .join("login.ini")
 }
 

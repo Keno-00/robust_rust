@@ -346,6 +346,11 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
             if state.start_requested {
                 state.start_requested = false;
+                if let Err(error) = state.config.validate_eligibility() {
+                    state.prepared_runtime = None;
+                    show_error(&error);
+                    return;
+                }
                 let algorithms = state.prepared_runtime.take();
                 if let Err(error) = crate::config::save_profile(&state.current_save_entry_name, &state.config) {
                     state.prepared_runtime = None;
@@ -353,7 +358,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     return;
                 }
                 window.set_visible(false);
-                let config = state.config.clone();
+                let config = state.config.effective_config();
                 let com_port = if state.com_ports.is_empty() {
                     Some("COM1".to_string())
                 } else {
@@ -727,14 +732,16 @@ fn draw_start_bar(ui: &Ui, state: &mut UiState) {
                 let progress = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
                 let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 state.preparation = Some(Preparation { result, progress: progress.clone(), cancelled: cancelled.clone() });
-                let preparation_config = state.config.clone();
+                let preparation_config = state.config.effective_config();
                 let needs_algorithm = preparation_config.unicorn;
                 std::thread::spawn(move || {
-                    let result = if needs_algorithm {
-                        crate::algorithm_runtime::AlgorithmRuntime::prepare_for_config(&preparation_config,&progress, &cancelled).map(Some)
-                    } else {
-                        crate::passport::algorithm_session().map(|_| None)
-                    };
+                    let result = preparation_config.validate_eligibility().and_then(|_| {
+                        if needs_algorithm {
+                            crate::algorithm_runtime::AlgorithmRuntime::prepare_for_config(&preparation_config,&progress, &cancelled).map(Some)
+                        } else {
+                            crate::passport::algorithm_session().map(|_| None)
+                        }
+                    });
                     if !cancelled.load(std::sync::atomic::Ordering::Acquire) {
                         if result.is_ok() { progress.store(100, std::sync::atomic::Ordering::Release); }
                         let _ = sender.send(result);
@@ -768,7 +775,13 @@ fn draw_start_bar(ui: &Ui, state: &mut UiState) {
 }
 
 fn draw_tabs(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame) {
-    poll_memory_status(state);
+    {
+        let _disabled = ui.begin_disabled(!crate::edition::memory_available());
+        let mut enabled = state.config.memory_features && crate::edition::memory_available();
+        if ui.checkbox(surface.text("u135"), &mut enabled) { state.config.memory_features = enabled; }
+    }
+    let eligibility = state.config.eligibility();
+    if eligibility.memory { poll_memory_status(state); }
     if let Some(receiver) = &state.echo_service_result {
         match receiver.try_recv() {
             Ok(result) => {
@@ -793,16 +806,15 @@ fn draw_tabs(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame) {
     }
     TabBar::new(surface.text("u112")).build(ui, || {
         TabItem::new(surface.text("u082")).build(ui, || draw_unicorn(ui, state, surface));
-        TabItem::new(surface.text("u113")).build(ui, || draw_humanize(ui, state, surface));
+        if eligibility.aim {
+            TabItem::new(surface.text("u113")).build(ui, || draw_humanize(ui, state, surface));
+        }
         TabItem::new(surface.text("u053")).build(ui, || draw_pegasus(ui, state, surface));
-        if state.config.coordinate_source == CoordinateSource::ColorDetection
-            || state.config.pegasus_source == CoordinateSource::ColorDetection
+        if eligibility.color_aim || eligibility.color_trigger
         {
             TabItem::new(surface.text("u114")).build(ui, || draw_computer_vision(ui, state, surface));
         }
-        if state.config.coordinate_source == CoordinateSource::Memory
-            || state.config.pegasus_source == CoordinateSource::Memory
-            || state.config.lanterns || state.config.comet || state.config.jade || state.config.wisps
+        if eligibility.memory
         {
             TabItem::new(surface.text("u115")).build(ui, || draw_memory(ui, state, surface));
         }
@@ -982,15 +994,16 @@ fn draw_aurora_marks(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::
 fn draw_unicorn(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame) {
     labeled_separator(ui, surface.text("u081"));
     ui.checkbox(surface.text("u082"), &mut state.config.unicorn);
-    radio_coordinate_source(ui, surface, surface.text("u083"), &mut state.config.coordinate_source);
+    if !state.config.unicorn { return; }
+    let memory = state.config.eligibility().memory;
+    radio_coordinate_source(ui, surface, surface.text("u083"), &mut state.config.coordinate_source, memory);
+    if !state.config.eligibility().aim { return; }
     binding_button(ui, state, BindingTarget::Unicorn, surface.text("u084"));
     radio_unicorn_activation(ui, surface, surface.text("u085"), &mut state.config.unicorn_base_activation);
 
     labeled_separator(ui, surface.text("u086"));
-    {
-        let _disabled = ui.begin_disabled(state.config.coordinate_source != CoordinateSource::Memory);
+    if state.config.eligibility().memory_aim {
         ui.checkbox(surface.text("u087"), &mut state.config.prism_only);
-    }
     let mut filter = match state.config.orbit_filter {
         LanternFilter::Opponents => 0,
         LanternFilter::MissionPlayers => 1,
@@ -1007,9 +1020,6 @@ fn draw_unicorn(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame
             _ => LanternFilter::AllPlayers,
         };
     }
-    if state.config.coordinate_source != CoordinateSource::Memory {
-        ui.text_wrapped(surface.text("u089"));
-    }
     let mut priority = usize::from(state.config.orbit_order == OrbitOrder::ClosestDistance);
     if ui.combo_simple_string(
         surface.text("u090"),
@@ -1022,10 +1032,28 @@ fn draw_unicorn(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame
             OrbitOrder::ClosestDistance
         };
     }
-    if state.config.orbit_order == OrbitOrder::ClosestDistance
-        && state.config.coordinate_source != CoordinateSource::Memory
+    }
     {
-        ui.text_wrapped(surface.text("u093"));
+        use crate::config::VerticalTracking;
+        let choices = [VerticalTracking::Current, VerticalTracking::NoY, VerticalTracking::Head,
+            VerticalTracking::Neck, VerticalTracking::Torso, VerticalTracking::Feet, VerticalTracking::ClosestPoint];
+        let labels = [surface.text("u137"), surface.text("u138"), surface.text("u139"),
+            surface.text("u140"), surface.text("u141"), surface.text("u142"), surface.text("u143")];
+        let preview = choices.iter().position(|mode| *mode == state.config.vertical_tracking).unwrap_or(0);
+        if let Some(_combo) = ui.begin_combo(surface.text("u136"), labels[preview]) {
+            for (index, mode) in choices.iter().enumerate() {
+                let _disabled = ui.begin_disabled(index > 1 && !state.config.eligibility().memory_aim);
+                if ui.selectable_config(labels[index]).selected(*mode == state.config.vertical_tracking).build() {
+                    state.config.vertical_tracking = *mode;
+                }
+            }
+        }
+        if state.config.eligibility().memory_aim && state.config.vertical_tracking == VerticalTracking::ClosestPoint {
+            let _id = ui.push_id("vertical_points");
+            for (index, label) in labels[2..6].iter().enumerate() {
+                ui.checkbox(*label, &mut state.config.vertical_points[index]);
+            }
+        }
     }
     ui.checkbox(surface.text("u094"), &mut state.config.unicorn_on_unicorn);
     if state.config.unicorn_on_unicorn {
@@ -1106,9 +1134,12 @@ fn draw_humanize_controls(ui: &Ui, state: &mut UiState, surface: &crate::petal_t
 
 fn draw_pegasus(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame) {
     ui.checkbox(surface.text("u053"), &mut state.config.pegasus);
-    radio_coordinate_source(ui, surface, surface.text("u054"), &mut state.config.pegasus_source);
+    if !state.config.pegasus { return; }
+    let memory = state.config.eligibility().memory;
+    radio_coordinate_source(ui, surface, surface.text("u054"), &mut state.config.pegasus_source, memory);
+    if !state.config.eligibility().trigger { return; }
     binding_button(ui, state, BindingTarget::Pegasus, surface.text("u055"));
-    if state.config.pegasus_source == CoordinateSource::Memory {
+    if state.config.eligibility().memory_trigger {
         if ui.checkbox(surface.text("u056"), &mut state.config.pegasus_on_red)
             && !state.config.pegasus_on_red
             && !state.config.pegasus_on_green
@@ -1128,7 +1159,7 @@ fn draw_pegasus(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame
         surface.text("u058"),
         &mut state.config.pegasus_activation,
     );
-    if state.config.pegasus_unicorn_supported() {
+    if state.config.eligibility().aim && state.config.pegasus_unicorn_supported() {
         ui.checkbox(surface.text("u059"), &mut state.config.pegasus_activates_unicorn);
     }
     TabBar::new(surface.text("u060")).build(ui, || {
@@ -1152,6 +1183,7 @@ fn draw_aurora_controls(ui: &Ui, state: &mut UiState, surface: &crate::petal_tex
     if ui.color_edit3(surface.text("u035"), &mut state.halo_color) {
         state.config.halo_color = float_to_rgb(state.halo_color);
     }
+    if state.config.eligibility().aim {
     ui.checkbox(surface.text("u036"), &mut state.config.unicorn_target_box);
     edit_rgb(ui, surface.text("u037"), &mut state.config.unicorn_target_color);
     ui.checkbox(surface.text("u038"), &mut state.config.lines);
@@ -1166,6 +1198,8 @@ fn draw_aurora_controls(ui: &Ui, state: &mut UiState, surface: &crate::petal_tex
     if ui.color_edit3(surface.text("u042"), &mut state.lines_color) {
         state.config.lines_color = float_to_rgb(state.lines_color);
     }
+    }
+    if !state.config.eligibility().memory { return; }
     draw_aurora_marks(ui, state, surface);
     labeled_separator(ui, surface.text("u043"));
     ui.checkbox(surface.text("u043"), &mut state.config.comet);
@@ -1297,7 +1331,7 @@ fn radio_pegasus_activation(ui: &Ui, surface: &crate::petal_text::Frame, label: 
     ui.radio_button(surface.text("u015"), value, PegasusActivation::DoubleCrouch);
 }
 
-fn radio_coordinate_source(ui: &Ui, surface: &crate::petal_text::Frame, label: &str, value: &mut CoordinateSource) {
+fn radio_coordinate_source(ui: &Ui, surface: &crate::petal_text::Frame, label: &str, value: &mut CoordinateSource, memory: bool) {
     ui.text(label);
     ui.radio_button(
         format!("{}##{label}", surface.text("u114")),
@@ -1305,6 +1339,7 @@ fn radio_coordinate_source(ui: &Ui, surface: &crate::petal_text::Frame, label: &
         CoordinateSource::ColorDetection,
     );
     ui.same_line();
+    let _disabled = ui.begin_disabled(!memory);
     ui.radio_button(format!("{}##{label}", surface.text("u115")), value, CoordinateSource::Memory);
 }
 

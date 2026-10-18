@@ -50,3 +50,19 @@ impl VerticalCorrection {
         }
     }
 }
+
+/// Approximate screen-height anchors; these are not skeletal bones or hitboxes.
+pub fn approximate_delta(target: AtlasUnicornTarget, mode: crate::config::VerticalTracking, enabled: [bool; 4]) -> i32 {
+    use crate::config::VerticalTracking;
+    let height = target.bottom - target.top;
+    let points = [target.top, target.top + height * 0.18, target.top + height * 0.45, target.bottom];
+    let value = match mode {
+        VerticalTracking::Head => points[0],
+        VerticalTracking::Neck => points[1],
+        VerticalTracking::Torso => points[2],
+        VerticalTracking::Feet => points[3],
+        VerticalTracking::ClosestPoint => points.into_iter().zip(enabled).filter(|(_, use_point)| *use_point).map(|(point, _)| point).min_by(|a,b| a.abs().total_cmp(&b.abs())).unwrap_or(0.0),
+        _ => 0.0,
+    };
+    value.round() as i32
+}

@@ -167,6 +167,14 @@ pub(crate) fn receive_algorithm(
     progress: &Arc<AtomicU32>,
     cancelled: &Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<(Zeroizing<Vec<u8>>, String), String> {
+        #[cfg(not(feature = "memory"))]
+        let scoped_id = {
+            let suffix = algorithm_id.strip_prefix("verux.apb.")
+                .ok_or("Algorithm identifier does not belong to this product.")?;
+            format!("{}.{suffix}", crate::passport::PRODUCT_ID)
+        };
+        #[cfg(not(feature = "memory"))]
+        let algorithm_id = scoped_id.as_str();
         let check_cancel = || {
             if cancelled.load(Ordering::Acquire) {
                 Err("Preparation cancelled.".to_string())

@@ -7,7 +7,13 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const SCHEMA: u32 = 2;
+#[cfg(feature = "memory")]
 pub const PRODUCT: &str = "verux-apb";
+#[cfg(not(feature = "memory"))]
+pub const PRODUCT: &str = "verux-apb-cb";
+pub(crate) fn source_allowed(source: &str) -> bool {
+    source == "color" || (crate::edition::memory_available() && source == "memory")
+}
 pub const FLICK_TRIALS: usize = 60;
 pub const TRACK_TRIALS: usize = 10;
 pub const TRACK_SECONDS: f64 = 15.0;
@@ -95,7 +101,7 @@ impl Store {
         let store = Self {
             root: PathBuf::from(home)
                 .join("Documents")
-                .join("VeruxAPB")
+                .join(crate::passport::APP_DIRECTORY)
                 .join(crate::protocol_names::model_directory())
                 .join("personality"),
         };
@@ -252,7 +258,7 @@ impl Store {
 
 pub(crate) fn validate_training_dataset(data: &Dataset) -> Result<(), String> {
     valid_id(&data.id)?;
-    if !matches!(data.source.as_str(), "color" | "memory")
+    if !source_allowed(&data.source)
         || data.schema != SCHEMA
         || data.product != PRODUCT
         || !data.width.is_finite()

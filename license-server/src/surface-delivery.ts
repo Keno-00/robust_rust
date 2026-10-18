@@ -7,21 +7,29 @@ export interface SurfaceEnv {
   APB_SURFACE_KEY?: string;
   APB_SURFACE_DIGEST?: string;
   APB_SURFACE_OBJECTS_DIGEST?: string;
+  APB_SURFACE_ELIGIBILITY_DIGEST?: string;
+  APB_CB_SURFACE_KEY?: string;
+  APB_CB_SURFACE_ELIGIBILITY_DIGEST?: string;
 }
 
 export async function deliverSurface(body: Record<string, unknown>, env: SurfaceEnv, sessionHash: string, expiresAt: number): Promise<Response> {
-  const objects = body.algorithm_id === "verux.apb.surface.objects";
-  const catalogId = objects ? "surface.objects" : "surface";
-  const expectedDigest = objects ? env.APB_SURFACE_OBJECTS_DIGEST : env.APB_SURFACE_DIGEST;
-  if (body.product_id !== "verux.apb" || (!objects && body.algorithm_id !== "verux.apb.surface") || body.abi_version !== 1
+  const product = body.product_id;
+  if (product !== "verux.apb" && product !== "verux.apb.cb") throw new RequestFailure(400, "invalid_surface", "This product is unsupported.");
+  const color = product === "verux.apb.cb";
+  const eligibility = body.algorithm_id === `${product}.surface.eligibility`;
+  const objects = !color && body.algorithm_id === "verux.apb.surface.objects";
+  const catalogId = eligibility ? "surface.eligibility" : objects ? "surface.objects" : "surface";
+  const expectedDigest = color ? env.APB_CB_SURFACE_ELIGIBILITY_DIGEST : eligibility ? env.APB_SURFACE_ELIGIBILITY_DIGEST : objects ? env.APB_SURFACE_OBJECTS_DIGEST : env.APB_SURFACE_DIGEST;
+  const surfaceKey = color ? env.APB_CB_SURFACE_KEY : env.APB_SURFACE_KEY;
+  if ((!eligibility && !objects && (color || body.algorithm_id !== "verux.apb.surface")) || body.abi_version !== 1
     || typeof body.recipient_key !== "string" || body.recipient_key.length > 100) {
     throw new RequestFailure(400, "invalid_surface", "Update the application and retry.");
   }
-  if (!env.APB_SURFACE_KEY || !/^[a-f0-9]{64}$/.test(expectedDigest || "")) {
+  if (!surfaceKey || !/^[a-f0-9]{64}$/.test(expectedDigest || "")) {
     throw new RequestFailure(503, "surface_not_configured", "Interface preparation is unavailable. Contact support.");
   }
   let key: Uint8Array;
-  try { key = decode64(env.APB_SURFACE_KEY); }
+  try { key = decode64(surfaceKey); }
   catch { throw new RequestFailure(503, "surface_key_invalid", "Interface preparation is unavailable. Contact support."); }
   try {
   let recipient: Uint8Array;
@@ -30,7 +38,7 @@ export async function deliverSurface(body: Record<string, unknown>, env: Surface
   if (key.length !== 32) throw new RequestFailure(503, "surface_key_invalid", "Interface preparation is unavailable. Contact support.");
   if (recipient.length !== 65 || recipient[0] !== 4) throw new RequestFailure(400, "invalid_recipient", "Restart the application and retry.");
   const row = await env.LICENSE_DB.prepare("SELECT encrypted_rows, digest FROM surface_catalogs WHERE product_id=? AND catalog_id=? AND version=?")
-    .bind("verux.apb", catalogId, "2.0.0").first<{encrypted_rows: string; digest: string}>();
+    .bind(product, catalogId, "2.0.0").first<{encrypted_rows: string; digest: string}>();
   if (!row || row.encrypted_rows.length === 0 || row.encrypted_rows.length > 96 * 1024) {
     throw new RequestFailure(503, "surface_unavailable", "Interface preparation is unavailable. Contact support.");
   }
@@ -47,7 +55,7 @@ export async function deliverSurface(body: Record<string, unknown>, env: Surface
   const bytes = new TextEncoder().encode(JSON.stringify({version: 1, key: encode64(key), rows}));
   try {
     const payloadDigest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2, "0")).join("");
-    const manifest = JSON.stringify({product_id: "verux.apb", algorithm_id: body.algorithm_id, artifact_version: "2.0.0",
+    const manifest = JSON.stringify({product_id: product, algorithm_id: body.algorithm_id, artifact_version: "2.0.0",
       abi_version: 1, digest: payloadDigest, size: bytes.length, session_hash: sessionHash, recipient_key: body.recipient_key,
       request_nonce: body.request_nonce, expires_at: expiresAt});
     const suite = new CipherSuite({kem: new DhkemP256HkdfSha256(), kdf: new HkdfSha256(), aead: new Aes256Gcm()});

@@ -58,7 +58,7 @@ pub fn log_message(level: &str, msg: &str) {
     let home = std::env::var("USERPROFILE").unwrap_or_default();
     let log_path = PathBuf::from(home)
         .join("Documents")
-        .join("VeruxAPB")
+        .join(crate::passport::APP_DIRECTORY)
         .join("verux_apb.log");
 
     if let Some(parent) = log_path.parent() {

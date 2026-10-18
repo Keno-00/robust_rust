@@ -1,6 +1,12 @@
 use serde::{Deserialize, Serialize};
 pub const SCHEMA: u32 = 2;
+#[cfg(not(feature = "color-only"))]
 pub const PRODUCT: &str = "verux-apb";
+#[cfg(feature = "color-only" )]
+pub const PRODUCT: &str = "verux-apb-cb";
+pub(crate) fn source_allowed(source: &str) -> bool {
+    source == "color" || (!cfg!(feature = "color-only") && source == "memory")
+}
 pub const FLICK_TRIALS: usize = 60;
 pub const TRACK_TRIALS: usize = 10;
 pub const TRACK_SECONDS: f64 = 15.0;
@@ -75,7 +81,7 @@ fn valid_id(id: &str) -> Result<(), String> {
 
 fn validate_dataset(data: &Dataset) -> Result<(), String> {
     valid_id(&data.id)?;
-    if !matches!(data.source.as_str(), "color" | "memory")
+    if !source_allowed(&data.source)
         || data.schema != SCHEMA
         || data.product != PRODUCT
         || !data.width.is_finite()

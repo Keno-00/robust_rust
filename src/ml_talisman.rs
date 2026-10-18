@@ -34,7 +34,7 @@ pub struct Personality {
 
 impl Personality {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.source.as_str(), "color" | "memory")
+        if !crate::ml_unicorn::source_allowed(&self.source)
             || self.flicks.is_empty()
             || self.sequences.is_empty()
             || self.flicks.len() > 10000

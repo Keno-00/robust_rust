@@ -21,12 +21,22 @@ pub const ROLLBACK_TOLERANCE_SECONDS: f64 = 5.0;
 pub const MAX_TAMPER_BEFORE_REVOKE: u32 = 3;
 pub const HEARTBEAT_MIN_INTERVAL_SECONDS: f64 = 1.0;
 pub const LEDGER_SCHEMA_VERSION: u32 = 2;
+#[cfg(feature = "memory")]
 pub const LEDGER_AAD: &[u8] = b"veruxapb-license-ledger-v2";
+#[cfg(not(feature = "memory"))]
+pub const LEDGER_AAD: &[u8] = b"veruxapbcb-license-ledger-v2";
 pub const PASSPORT_SERVER_URL: &str = match option_env!("VERUX_LICENSE_SERVER_URL") {
     Some(value) => value,
     None => "https://verux-license.verux-services.workers.dev",
 };
+#[cfg(feature = "memory")]
 pub const PRODUCT_ID: &str = "verux.apb";
+#[cfg(not(feature = "memory"))]
+pub const PRODUCT_ID: &str = "verux.apb.cb";
+#[cfg(feature = "memory")]
+pub const APP_DIRECTORY: &str = "VeruxAPB";
+#[cfg(not(feature = "memory"))]
+pub const APP_DIRECTORY: &str = "VeruxAPBCB";
 const MAX_SERVER_RESPONSE_BYTES: u64 = 64 * 1024;
 const MAX_SESSION_SEQUENCE: u64 = 9_007_199_254_740_991;
 
@@ -265,7 +275,7 @@ pub fn get_secure_storage_dir() -> std::path::PathBuf {
         format!("{}\\AppData\\Local", home)
     });
     std::path::PathBuf::from(base)
-        .join("VeruxAPB")
+        .join(APP_DIRECTORY)
         .join("secure")
 }
 
@@ -974,6 +984,11 @@ pub fn apply_usage_policy(
 
 pub fn license_fingerprint(license_key: &str) -> String {
     let mut hasher = Sha256::new();
+    #[cfg(not(feature = "memory"))]
+    {
+        hasher.update(PRODUCT_ID.as_bytes());
+        hasher.update(b"\0");
+    }
     hasher.update(license_key.trim().as_bytes());
     format!("{:x}", hasher.finalize())
 }

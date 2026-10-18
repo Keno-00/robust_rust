@@ -39,6 +39,7 @@ pub struct MlUi {
     status: String,
     rename: String,
     rename_id: String,
+    source: Option<crate::config::CoordinateSource>,
 }
 
 impl MlUi {
@@ -75,6 +76,9 @@ impl MlUi {
     }
 
     pub fn open_window(&mut self, kind: MlWindow, config: &ProfileConfig) -> Result<(), String> {
+        if !config.eligibility().aim {
+            return Err("Enable an eligible aim source before opening ML controls.".into());
+        }
         if self.busy() {
             return Err("Close the active ML window or finish training first.".into());
         }
@@ -94,7 +98,10 @@ impl MlUi {
                 crate::log_info!("ML dataset collection requested: {id}.");
             }
             MlWindow::Preview => {
-                Store::open()?.load_model(&config.ml_unicorn_model)?;
+                let model = Store::open()?.load_model(&config.ml_unicorn_model)?;
+                if model.personality.source != Self::source_name(config) {
+                    return Err("Select a model matching the active aim source before previewing.".into());
+                }
                 command
                     .arg("--ml-preview")
                     .arg(&config.ml_unicorn_model)
@@ -118,6 +125,11 @@ impl MlUi {
     }
 
     pub fn poll(&mut self, config: &mut ProfileConfig) -> Result<(), String> {
+        if self.source.is_some_and(|source| source != config.coordinate_source)
+            || (!config.eligibility().aim && self.busy()) {
+            self.close_window();
+        }
+        self.source = Some(config.coordinate_source);
         if let Some(receiver)=&self.window_loading {
             match receiver.try_recv() {
                 Ok(result)=>{self.window_loading=None;self.dataset_progress=None;match result {Ok(value)=>self.window=Some(value),Err(error)=>{if let Some(c)=self.dataset_cancel.take(){c.store(true,std::sync::atomic::Ordering::Release);}return Err(error);}}}
@@ -141,7 +153,7 @@ impl MlUi {
                 match status.code() {
                     Some(0) => { crate::log_info!("{} window finished.", kind.name()); }
                     Some(2) if kind == MlWindow::Dataset => { crate::log_info!("ML dataset collection canceled; previous datasets retained."); }
-                    _ => return Err(format!("{} failed. Check its error dialog and Documents\\VeruxAPB\\verux_apb.log, then reopen the window.", kind.name())),
+                    _ => return Err(format!("{} failed. Check its error dialog and Documents\\{}\\verux_apb.log, then reopen the window.", kind.name(), crate::passport::APP_DIRECTORY)),
                 }
             }
         }
@@ -158,8 +170,9 @@ impl MlUi {
                         if !current {self.status="Cancelled".into();break;}
                         match result {
                             Ok(model) => {
+                                let compatible = model.personality.source == Self::source_name(config);
                                 Store::open()?.save_model(&model)?;
-                                config.ml_unicorn_model = model.id;
+                                if compatible && config.eligibility().aim { config.ml_unicorn_model = model.id; }
                                 self.status = "Training complete".into();
                                 self.refresh()?;
                             }
@@ -180,7 +193,18 @@ impl MlUi {
                 }
             }
         }
+        if self.models.iter().any(|model| model.id == config.ml_unicorn_model
+            && model.personality.source != Self::source_name(config)) {
+            config.ml_unicorn_model.clear();
+            config.ml_unicorn_enabled = false;
+            self.status = "Aim source changed; incompatible model selection cleared.".into();
+            crate::log_info!("ML model selection cleared: model source does not match selected aim source.");
+        }
         Ok(())
+    }
+
+    fn source_name(config: &ProfileConfig) -> &'static str {
+        if config.coordinate_source == crate::config::CoordinateSource::Memory { "memory" } else { "color" }
     }
 
     fn train(&mut self, source: String) {
@@ -222,6 +246,7 @@ impl MlUi {
         config: &mut ProfileConfig,
         surface: &crate::petal_text::Frame,
     ) -> Result<Option<MlWindow>, String> {
+        if !config.eligibility().aim { return Ok(None); }
         let disabled = ui.begin_disabled(self.busy());
         let dataset_requested = ui.button(surface.text("u118"));
         let mut requested = dataset_requested.then_some(MlWindow::Dataset);
@@ -256,6 +281,7 @@ impl MlUi {
         );
         if let Some(_combo) = ui.begin_combo(surface.text("u124"), preview) {
             for model in &self.models {
+                if model.personality.source != Self::source_name(config) { continue; }
                 if ui
                     .selectable_config(format!("{}##{}", model.name, model.id))
                     .selected(model.id == config.ml_unicorn_model)
@@ -330,6 +356,7 @@ impl MlUi {
                 }
                 Ok(model)
             }) {
+                config.ml_unicorn_enabled = false;
                 return Err(format!("ML Unicorn could not enable: {error}"));
             }
         }

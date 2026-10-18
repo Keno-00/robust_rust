@@ -88,6 +88,7 @@ pub extern "C" fn course(
     axis: i32,
 ) -> f64 {
     if !(0..=6).contains(&op)
+        || (cfg!(feature = "color-only") && source != 0)
         || !(0..=10000).contains(&number)
         || !(0..=1).contains(&source)
         || !(0..=2).contains(&axis)

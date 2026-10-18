@@ -17,7 +17,7 @@ fn show_fatal_error(message: &str) {
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
-    let body = format!("{message}\n\nDetails were written to Documents\\VeruxAPB\\verux_apb.log.");
+    let body = format!("{message}\n\nDetails were written to Documents\\{}\\verux_apb.log.", robust_rust::passport::APP_DIRECTORY);
     let body: Vec<u16> = std::ffi::OsStr::new(&body)
         .encode_wide()
         .chain(std::iter::once(0))

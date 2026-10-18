@@ -6,6 +6,8 @@ process.stdin.on('data', chunk => { input += chunk; if (input.length > 256 * 102
 process.stdin.on('end', () => {
   const packet = JSON.parse(input);
   input = '';
+  const product = packet.product || 'verux.apb';
+  if (!['verux.apb', 'verux.apb.cb'].includes(product)) throw new Error('Unsupported product.');
   const key = Buffer.from(packet.key, 'base64url');
   packet.key = '';
   try {
@@ -18,7 +20,7 @@ process.stdin.on('end', () => {
       if (bytes.length > 4080) throw new Error('Display row exceeds its limit.');
       const nonce = randomBytes(12);
       const cipher = createCipheriv('aes-256-gcm', key, nonce);
-      cipher.setAAD(Buffer.from(`verux.apb|surface|1|${id}`, 'utf8'));
+      cipher.setAAD(Buffer.from(`${product}|surface|1|${id}`, 'utf8'));
       try {
         const encrypted = Buffer.concat([cipher.update(bytes), cipher.final(), cipher.getAuthTag()]);
         rows[id] = {nonce: nonce.toString('base64url'), ciphertext: encrypted.toString('base64url')};

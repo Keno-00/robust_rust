@@ -72,7 +72,7 @@ include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/petal_ids.rs"));
 
 pub(crate) fn receive() -> Result<Arc<Catalog>, String> {
     let (bytes, session_hash) = crate::algorithm_runtime::receive_algorithm(
-        "verux.apb.surface.objects",
+        "verux.apb.surface.eligibility",
         128 * 1024,
         &Arc::new(AtomicU32::new(0)),
         &Arc::new(AtomicBool::new(false)),
@@ -143,7 +143,7 @@ impl Catalog {
         let cipher =
             Aes256Gcm::new_from_slice(&self.key[..]).map_err(|_| "Interface key is invalid.")?;
         let (nonce, encrypted) = self.rows.get(id).ok_or("Interface row is missing.")?;
-        let aad = format!("verux.apb|surface|1|{id}");
+        let aad = format!("{}|surface|1|{id}", crate::passport::PRODUCT_ID);
         let bytes = Zeroizing::new(
             cipher
                 .decrypt(

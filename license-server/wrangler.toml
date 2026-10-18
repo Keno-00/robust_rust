@@ -6,12 +6,21 @@ workers_dev = true
 preview_urls = false
 
 [vars]
+APB_CB_INFERENCE_DIGEST = "aaefc8f9908d1805570ff0bc20e428c6355b40db0571dcaaa2f6c6132ebde113"
+APB_CB_TRAINING_DIGEST = "2cc5b268986ab34dfe58f1d9abcdb4d84534b19d2f53d3a4550db40be645596e"
+APB_CB_DATASET_DIGEST = "5076e1337133817b8568f9a31b2c3eb4736f9a8780a2b863f6de0b10b9960e4b"
+APB_CB_SMOOTHING_DIGEST = "6708c8a3e46d614af05ddfe9ee46978bf21c99a93b4195eb48e872e06f2b6784"
+APB_CB_SURFACE_ELIGIBILITY_DIGEST = "93526c2844a8d1d5ccc586bb1db62c06c78654872c0eccc35fcbb266c2dba853"
+APB_SURFACE_ELIGIBILITY_DIGEST = "0bdeb9e0a251187d037287df6013430cecbba9b984e20d217c2d2fa1c939ce5c"
 APB_SURFACE_OBJECTS_DIGEST = "1a53e1ac72a4ba91d847b58c5f30dd6595532241117aeda778b8066e94e77e2e"
 APB_SURFACE_DIGEST = "2c7deacdaa787988e375e35d74bad2a6d94734efa76fc52194649b1b8b71e773"
 # Verified template; delivery personalizes only its reviewed USB VID/PID descriptor bytes.
 LEONARDO_FIRMWARE_TEMPLATE = '{"version":"1.0.0-candidate.1","digest":"f9d35d821fa7396516cad9035e10c11d470f3e104f4ac4d56021d771aa21286e","descriptor_offset":242}'
 APP_ENABLED = "true"
 APB_PAYHIP_PRODUCT_NAMES = "verux.apb"
+APB_CB_PAYHIP_PRODUCT_NAMES = "verux.apb.cb"
+APB_CB_MIN_CLIENT_VERSION = "2.1.0"
+APB_CB_LEONARDO_FIRMWARE_TEMPLATE = '{"version":"1.0.0-candidate.1","digest":"f9d35d821fa7396516cad9035e10c11d470f3e104f4ac4d56021d771aa21286e","descriptor_offset":242}'
 # Keep empty until Songmaker has an official Payhip listing. Enrollment also
 # requires the PAYHIP_PRODUCT_SECRET_SM Worker secret described in README.md.
 SM_PAYHIP_PRODUCT_NAMES = "verux.sm"
