@@ -775,11 +775,6 @@ fn draw_start_bar(ui: &Ui, state: &mut UiState) {
 }
 
 fn draw_tabs(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame) {
-    {
-        let _disabled = ui.begin_disabled(!crate::edition::memory_available());
-        let mut enabled = state.config.memory_features && crate::edition::memory_available();
-        if ui.checkbox(surface.text("u135"), &mut enabled) { state.config.memory_features = enabled; }
-    }
     let eligibility = state.config.eligibility();
     if eligibility.memory { poll_memory_status(state); }
     if let Some(receiver) = &state.echo_service_result {
@@ -858,6 +853,7 @@ fn show_error(message: &str) {
 }
 
 fn draw_computer_vision(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame) {
+    input_vec2(ui, surface.text("u017"), &mut state.config.monitor_resolution);
     input_vec2(ui, surface.text("u110"), &mut state.config.grab_resolution);
     let mut fps = state.config.fps as i32;
     if ui.input_int(surface.text("u111"), &mut fps).build() {
@@ -1230,11 +1226,12 @@ fn draw_aurora_controls(ui: &Ui, state: &mut UiState, surface: &crate::petal_tex
 }
 
 fn draw_general(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame) {
-    input_vec2(
-        ui,
-        surface.text("u017"),
-        &mut state.config.monitor_resolution,
-    );
+    {
+        let _id = ui.push_id("memory_features");
+        let _disabled = ui.begin_disabled(!crate::edition::memory_available());
+        let mut enabled = state.config.memory_features && crate::edition::memory_available();
+        if ui.checkbox(surface.text("u115"), &mut enabled) { state.config.memory_features = enabled; }
+    }
     binding_button(ui, state, BindingTarget::Pause, surface.text("u018"));
     binding_button(ui, state, BindingTarget::Block, surface.text("u019"));
     labeled_separator(ui, surface.text("u020"));

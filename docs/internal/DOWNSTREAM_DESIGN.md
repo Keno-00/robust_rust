@@ -39,3 +39,10 @@ One repository: Full includes Color and Memory; Color compiles without actual dr
 ## Categories still under discussion
 
 Weapon labels need verified pawn-to-equipped-weapon identity. Looking-at-you alerts need remote facing evidence, not the local camera. Hit/kill audio needs a trustworthy event and user-approved distinction between a local hit/kill and any player's death. WAV availability alone does not establish that event. Generic audio emitters are diagnostic until active playback semantics are confirmed.
+
+
+## User decisions — 2026-10-19
+
+- The memory capability checkbox belongs only in General and is labeled Memory. Monitor Resolution belongs in Computer Vision.
+- Hit sounds must use a verified direct memory signal distinguishing red/flesh hits from white hits. The user explicitly rejected pixel detection. Captured hitmarker images are diagnostic ground truth only; never introduce them as an automatic runtime fallback.
+- Initial remote-facing and nearby-player identity probes did not establish a looking-at-you address, display name, equipped model or ammo count. Keep those unresolved; do not promote a 180-degree visual mismatch into a simple sign correction without rotation evidence.
