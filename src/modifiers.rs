@@ -1,6 +1,6 @@
-use crate::config::{EaseCurve, ProximityEffect, RampApply};
+use crate::config::{ArcCurve, VelvetEffect, TideApply};
 
-pub fn ease_factor(t: f64, curve: EaseCurve) -> f64 {
+pub fn ease_factor(t: f64, curve: ArcCurve) -> f64 {
     let t = t.clamp(0.0, 1.0);
     let t = if (1.0 - t).abs() < f64::EPSILON * 32.0 {
         1.0
@@ -8,30 +8,30 @@ pub fn ease_factor(t: f64, curve: EaseCurve) -> f64 {
         t
     };
     match curve {
-        EaseCurve::Linear => t,
-        EaseCurve::Smoothstep => t * t * (3.0 - (2.0 * t)),
+        ArcCurve::Linear => t,
+        ArcCurve::Beesmasstep => t * t * (3.0 - (2.0 * t)),
         // Quintic S curve: first and second derivatives vanish at both endpoints.
-        EaseCurve::Smootherstep => t * t * t * (t * (6.0 * t - 15.0) + 10.0),
-        EaseCurve::Quad => t * t,
-        EaseCurve::Cubic => t * t * t,
+        ArcCurve::Beesmascurve => t * t * t * (t * (6.0 * t - 15.0) + 10.0),
+        ArcCurve::Quad => t * t,
+        ArcCurve::Cubic => t * t * t,
     }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct RampController {
-    pub ramp_time_ms: u32,
+    pub tide_time_ms: u32,
     pub idle_reset_ms: u32,
-    pub mode: RampApply,
-    pub ease: EaseCurve,
+    pub mode: TideApply,
+    pub ease: ArcCurve,
     armed: bool,
     started_at_s: f64,
     last_target_at_s: f64,
 }
 
 impl RampController {
-    pub fn new(ramp_time_ms: u32, idle_reset_ms: u32, mode: RampApply, ease: EaseCurve) -> Self {
+    pub fn new(tide_time_ms: u32, idle_reset_ms: u32, mode: TideApply, ease: ArcCurve) -> Self {
         Self {
-            ramp_time_ms,
+            tide_time_ms,
             idle_reset_ms,
             mode,
             ease,
@@ -74,26 +74,26 @@ impl RampController {
         if !self.armed {
             return 0.0;
         }
-        if self.ramp_time_ms == 0 {
+        if self.tide_time_ms == 0 {
             return 1.0;
         }
 
-        let t = ((now_s - self.started_at_s) * 1000.0) / f64::from(self.ramp_time_ms);
+        let t = ((now_s - self.started_at_s) * 1000.0) / f64::from(self.tide_time_ms);
         ease_factor(t, self.ease)
     }
 
-    pub fn apply(&self, dx: i32, dy: i32, smoothing: f32, now_s: f64) -> (i32, i32, f32) {
+    pub fn apply(&self, dx: i32, dy: i32, beesmas_value: f32, now_s: f64) -> (i32, i32, f32) {
         let factor = self.factor(now_s);
         match self.mode {
-            RampApply::Delta => (
+            TideApply::Delta => (
                 (f64::from(dx) * factor).round() as i32,
                 (f64::from(dy) * factor).round() as i32,
-                smoothing,
+                beesmas_value,
             ),
-            RampApply::Smoothing => {
-                let smoothing = f64::from(smoothing);
-                let smoothing_start = smoothing.max(0.0) * 4.0;
-                let effective = smoothing_start + (smoothing - smoothing_start) * factor;
+            TideApply::BeesmasValue => {
+                let beesmas_value = f64::from(beesmas_value);
+                let beesmas_value_start = beesmas_value.max(0.0) * 4.0;
+                let effective = beesmas_value_start + (beesmas_value - beesmas_value_start) * factor;
                 (dx, dy, effective as f32)
             }
         }
@@ -102,14 +102,14 @@ impl RampController {
 
 impl Default for RampController {
     fn default() -> Self {
-        Self::new(0, 350, RampApply::Delta, EaseCurve::Linear)
+        Self::new(0, 350, TideApply::Delta, ArcCurve::Linear)
     }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct DecayController {
-    pub ramp_time_ms: u32,
-    pub ease: EaseCurve,
+    pub tide_time_ms: u32,
+    pub ease: ArcCurve,
     armed: bool,
     started_at_s: f64,
     dx0: f64,
@@ -117,9 +117,9 @@ pub struct DecayController {
 }
 
 impl DecayController {
-    pub fn new(ramp_time_ms: u32, ease: EaseCurve) -> Self {
+    pub fn new(tide_time_ms: u32, ease: ArcCurve) -> Self {
         Self {
-            ramp_time_ms,
+            tide_time_ms,
             ease,
             armed: false,
             started_at_s: 0.0,
@@ -149,12 +149,12 @@ impl DecayController {
     }
 
     pub fn delta(&mut self, now_s: f64) -> (i32, i32, bool) {
-        if !self.armed || self.ramp_time_ms == 0 {
+        if !self.armed || self.tide_time_ms == 0 {
             self.armed = false;
             return (0, 0, false);
         }
 
-        let t = ((now_s - self.started_at_s) * 1000.0) / f64::from(self.ramp_time_ms);
+        let t = ((now_s - self.started_at_s) * 1000.0) / f64::from(self.tide_time_ms);
         if t >= 1.0 {
             self.armed = false;
             return (0, 0, false);
@@ -174,7 +174,7 @@ impl DecayController {
 
 impl Default for DecayController {
     fn default() -> Self {
-        Self::new(0, EaseCurve::Linear)
+        Self::new(0, ArcCurve::Linear)
     }
 }
 
@@ -183,8 +183,8 @@ pub struct ProximityCharge {
     pub enabled: bool,
     pub distance: i32,
     pub build_ms: u32,
-    pub effect: ProximityEffect,
-    pub ease: EaseCurve,
+    pub effect: VelvetEffect,
+    pub ease: ArcCurve,
 }
 
 impl Default for ProximityCharge {
@@ -193,8 +193,8 @@ impl Default for ProximityCharge {
             enabled: false,
             distance: 50,
             build_ms: 700,
-            effect: ProximityEffect::Strength,
-            ease: EaseCurve::Smoothstep,
+            effect: VelvetEffect::Strength,
+            ease: ArcCurve::Beesmasstep,
         }
     }
 }
@@ -209,12 +209,12 @@ impl ProximityChargeState {
     pub fn update(
         &mut self,
         config: ProximityCharge,
-        aim_active: bool,
+        unicorn_active: bool,
         dx: i32,
         dy: i32,
         now_s: f64,
     ) {
-        if !config.enabled || !aim_active {
+        if !config.enabled || !unicorn_active {
             self.reset();
             return;
         }
@@ -241,24 +241,24 @@ impl ProximityChargeState {
         &self,
         dx: i32,
         dy: i32,
-        smoothing: f32,
-        effect: ProximityEffect,
+        beesmas_value: f32,
+        effect: VelvetEffect,
     ) -> (i32, i32, f32) {
         if self.factor <= 0.0 {
-            return (dx, dy, smoothing);
+            return (dx, dy, beesmas_value);
         }
 
         match effect {
-            ProximityEffect::Strength => {
+            VelvetEffect::Strength => {
                 let charge_strength = 1.0 + (0.35 * self.factor);
                 (
                     (f64::from(dx) * charge_strength).round() as i32,
                     (f64::from(dy) * charge_strength).round() as i32,
-                    smoothing,
+                    beesmas_value,
                 )
             }
-            ProximityEffect::Smoothing => {
-                let effective = f64::from(smoothing) * (1.0 - (0.35 * self.factor));
+            VelvetEffect::BeesmasValue => {
+                let effective = f64::from(beesmas_value) * (1.0 - (0.35 * self.factor));
                 (dx, dy, effective.max(1.0) as f32)
             }
         }
@@ -276,17 +276,17 @@ mod tests {
 
     #[test]
     fn easing_curves_match_python_shapes() {
-        assert_eq!(ease_factor(0.5, EaseCurve::Linear), 0.5);
-        assert_eq!(ease_factor(0.5, EaseCurve::Smoothstep), 0.5);
-        assert_eq!(ease_factor(0.5, EaseCurve::Quad), 0.25);
-        assert_eq!(ease_factor(0.5, EaseCurve::Cubic), 0.125);
-        assert_eq!(ease_factor(-1.0, EaseCurve::Linear), 0.0);
-        assert_eq!(ease_factor(2.0, EaseCurve::Linear), 1.0);
+        assert_eq!(ease_factor(0.5, ArcCurve::Linear), 0.5);
+        assert_eq!(ease_factor(0.5, ArcCurve::Beesmasstep), 0.5);
+        assert_eq!(ease_factor(0.5, ArcCurve::Quad), 0.25);
+        assert_eq!(ease_factor(0.5, ArcCurve::Cubic), 0.125);
+        assert_eq!(ease_factor(-1.0, ArcCurve::Linear), 0.0);
+        assert_eq!(ease_factor(2.0, ArcCurve::Linear), 1.0);
     }
 
     #[test]
-    fn ramp_scales_delta_over_time() {
-        let mut ramp = RampController::new(100, 350, RampApply::Delta, EaseCurve::Linear);
+    fn tide_scales_delta_over_time() {
+        let mut ramp = RampController::new(100, 350, TideApply::Delta, ArcCurve::Linear);
         ramp.arm(10.0);
 
         assert_eq!(ramp.apply(100, -50, 2.5, 10.0), (0, 0, 2.5));
@@ -295,8 +295,8 @@ mod tests {
     }
 
     #[test]
-    fn ramp_can_fade_smoothing() {
-        let mut ramp = RampController::new(100, 350, RampApply::Smoothing, EaseCurve::Linear);
+    fn tide_can_fade_beesmas_value() {
+        let mut ramp = RampController::new(100, 350, TideApply::BeesmasValue, ArcCurve::Linear);
         ramp.arm(0.0);
 
         assert_eq!(ramp.apply(10, 20, 2.5, 0.0), (10, 20, 10.0));
@@ -304,8 +304,8 @@ mod tests {
     }
 
     #[test]
-    fn ramp_idle_reset_disarms_after_configured_gap() {
-        let mut ramp = RampController::new(100, 30, RampApply::Delta, EaseCurve::Linear);
+    fn tide_idle_reset_disarms_after_configured_gap() {
+        let mut ramp = RampController::new(100, 30, TideApply::Delta, ArcCurve::Linear);
         ramp.arm(1.0);
         ramp.note_target_seen(1.01);
         ramp.check_idle_reset(1.039);
@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn decay_eases_last_delta_to_zero() {
-        let mut decay = DecayController::new(100, EaseCurve::Linear);
+        let mut decay = DecayController::new(100, ArcCurve::Linear);
         decay.arm(100, -50, 2.0);
 
         assert_eq!(decay.delta(2.0), (100, -50, true));
@@ -327,13 +327,13 @@ mod tests {
     }
 
     #[test]
-    fn proximity_charge_builds_and_applies_strength() {
+    fn velvet_charge_builds_and_applies_strength() {
         let config = ProximityCharge {
             enabled: true,
             distance: 50,
             build_ms: 100,
-            effect: ProximityEffect::Strength,
-            ease: EaseCurve::Linear,
+            effect: VelvetEffect::Strength,
+            ease: ArcCurve::Linear,
         };
         let mut state = ProximityChargeState::default();
 
@@ -346,13 +346,13 @@ mod tests {
     }
 
     #[test]
-    fn proximity_charge_resets_out_of_range() {
+    fn velvet_charge_resets_out_of_range() {
         let config = ProximityCharge {
             enabled: true,
             distance: 50,
             build_ms: 100,
-            effect: ProximityEffect::Smoothing,
-            ease: EaseCurve::Linear,
+            effect: VelvetEffect::BeesmasValue,
+            ease: ArcCurve::Linear,
         };
         let mut state = ProximityChargeState::default();
 

@@ -1,10 +1,15 @@
 name = "verux-license"
+account_id = "8b35956ff018a988ed0a6c84df4f4807"
 main = "src/index.ts"
 compatibility_date = "2026-08-27"
 workers_dev = true
 preview_urls = false
 
 [vars]
+APB_SURFACE_OBJECTS_DIGEST = "1a53e1ac72a4ba91d847b58c5f30dd6595532241117aeda778b8066e94e77e2e"
+APB_SURFACE_DIGEST = "2c7deacdaa787988e375e35d74bad2a6d94734efa76fc52194649b1b8b71e773"
+# Verified template; delivery personalizes only its reviewed USB VID/PID descriptor bytes.
+LEONARDO_FIRMWARE_TEMPLATE = '{"version":"1.0.0-candidate.1","digest":"f9d35d821fa7396516cad9035e10c11d470f3e104f4ac4d56021d771aa21286e","descriptor_offset":242}'
 APP_ENABLED = "true"
 APB_PAYHIP_PRODUCT_NAMES = "verux.apb"
 # Keep empty until Songmaker has an official Payhip listing. Enrollment also
@@ -17,6 +22,23 @@ SESSION_TTL_SECONDS = "120"
 DISCORD_ADMIN_USER_ID = "541193737758441472"
 DISCORD_APPLICATION_ID = "1194649064181088376"
 DISCORD_PUBLIC_KEY = "974067af8b308595f6f34a3989942c6a7a70ac3c024a629d6f92b281f8e41fc6"
+SERVER_SIGNING_KEY_ID = "verux-20261003"
+APB_TRAINING_DIGEST = "140fe619c8b88cda8756f940f7df7bbd585a7d4c94294d0afd2d233f51e3b8fd"
+APB_INFERENCE_DIGEST = "9936a25db208ac2450885a927c1c10d94f5a5a016c6eb4b9a998b52a885e8f57"
+APB_DATASET_DIGEST = "d448b6cd05a11b8c77156946ec9332310a204ca35ec8b98941988eb6175ddf27"
+APB_SMOOTHING_DIGEST = "6708c8a3e46d614af05ddfe9ee46978bf21c99a93b4195eb48e872e06f2b6784"
+
+[[r2_buckets]]
+binding = "ALGORITHM_ARTIFACTS"
+bucket_name = "verux-algorithm-artifacts"
+
+[[durable_objects.bindings]]
+name = "LICENSE_COORDINATOR"
+class_name = "LicenseCoordinator"
+
+[[migrations]]
+tag = "v1-license-coordinator"
+new_sqlite_classes = ["LicenseCoordinator"]
 
 [[d1_databases]]
 binding = "LICENSE_DB"
@@ -38,3 +60,30 @@ simple = { limit = 180, period = 60 }
 name = "DISCORD_RATE_LIMITER"
 namespace_id = "1003"
 simple = { limit = 60, period = 60 }
+
+# Independent edge-IP ceilings run before parsing or Payhip/database work.
+# Existing per-license/session/actor limits remain separate.
+[[ratelimits]]
+name = "ACTIVATION_NETWORK_RATE_LIMITER"
+namespace_id = "1004"
+simple = { limit = 120, period = 60 }
+
+[[ratelimits]]
+name = "SESSION_NETWORK_RATE_LIMITER"
+namespace_id = "1005"
+simple = { limit = 1200, period = 60 }
+
+[[ratelimits]]
+name = "DISCORD_NETWORK_RATE_LIMITER"
+namespace_id = "1006"
+simple = { limit = 120, period = 60 }
+
+[[ratelimits]]
+name = "ALGORITHM_RATE_LIMITER"
+namespace_id = "1007"
+simple = { limit = 30, period = 60 }
+
+[[ratelimits]]
+name = "FIRMWARE_RATE_LIMITER"
+namespace_id = "1008"
+simple = { limit = 10, period = 60 }

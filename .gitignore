@@ -6,5 +6,9 @@
 *.exp
 .idea/
 .vscode/
+__pycache__/
 license-server/node_modules/
 license-server/.wrangler/
+
+license-server/algorithms/**/target/
+/.dado/

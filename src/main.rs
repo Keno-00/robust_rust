@@ -1,5 +1,7 @@
 #![windows_subsystem = "windows"]
 
+mod feature_catalog;
+
 use robust_rust::log_err;
 use std::env;
 use std::os::windows::ffi::OsStrExt;
@@ -116,6 +118,7 @@ extern "system" {
 }
 
 fn main() {
+    feature_catalog::retain();
     // --- Restore original user's LOCALAPPDATA before anything else ---
     // When relaunched as Admin via "runas", LOCALAPPDATA points to the
     // Administrator profile, not the regular user's profile. This breaks
@@ -146,8 +149,63 @@ fn main() {
         }
     }
 
+    if let Err(error) = robust_rust::memory_guard::initialize() {
+        show_fatal_error(&error);
+        std::process::exit(1);
+    }
+
     unsafe {
         let _ = timeBeginPeriod(1);
+    }
+
+    if let Some(index) = args.iter().position(|arg| arg == "--ml-dataset") {
+        let result = args
+            .get(index + 1)
+            .ok_or_else(|| "Dataset ID is missing.".to_string())
+            .and_then(|id| robust_rust::ml_mosaic::run(id.clone(), args.iter().position(|a| a == "--ml-source").and_then(|i|args.get(i+1)).cloned().unwrap_or_default()));
+        let code = match result {
+            Ok(true) => 0,
+            Ok(false) => 2,
+            Err(error) => {
+                log_err!("Dataset failed: {error}");
+                show_fatal_error(&error);
+                1
+            }
+        };
+        unsafe {
+            let _ = timeEndPeriod(1);
+        }
+        std::process::exit(code);
+    }
+
+    if let Some(index) = args.iter().position(|arg| arg == "--ml-preview") {
+        let result = (|| {
+            let values = args
+                .get(index + 1..index + 5)
+                .ok_or("Preview model, monitor dimensions, or FPS is missing.")?;
+            let width = values[1]
+                .parse::<i32>()
+                .map_err(|_| "Preview monitor width is invalid.")?;
+            let height = values[2]
+                .parse::<i32>()
+                .map_err(|_| "Preview monitor height is invalid.")?;
+            let fps = values[3]
+                .parse::<u32>()
+                .map_err(|_| "Preview FPS is invalid.")?;
+            robust_rust::ml_mirage::run(&values[0], width, height, fps)
+        })();
+        let code = match result {
+            Ok(()) => 0,
+            Err(error) => {
+                log_err!("Model preview failed: {error}");
+                show_fatal_error(&error);
+                1
+            }
+        };
+        unsafe {
+            let _ = timeEndPeriod(1);
+        }
+        std::process::exit(code);
     }
 
     if let Err(error) = robust_rust::ui::run() {

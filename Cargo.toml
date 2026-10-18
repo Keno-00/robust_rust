@@ -8,6 +8,9 @@ autobins = false
 name = "verux_apb"
 path = "src/main.rs"
 
+[features]
+apb-hash-test = []
+
 [dependencies]
 glium = "0.35.0"
 image = "0.25.10"
@@ -15,14 +18,20 @@ imgui = "0.12.0"
 imgui-glium-renderer = "0.13.0"
 imgui-winit-support = "0.13.0"
 serialport = "4"
-windows = { version = "0.52.0", features = ["Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Security_Cryptography", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_System_Performance", "Win32_Security", "Win32_UI_Shell", "Win32_Graphics_Dxgi", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Diagnostics_ToolHelp"] }
+windows = { version = "0.52.0", features = ["Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Security_Cryptography", "Win32_Security_Authorization", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_System_Performance", "Win32_Security", "Win32_UI_Shell", "Win32_Graphics_Dxgi", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Services"] }
 base64 = "0.22.0"
 sha2 = "0.10.8"
-aes-gcm = "0.10.3"
+aes-gcm = { version = "0.10.3", features = ["zeroize"] }
+aes = { version = "0.8.4", features = ["zeroize"] }
+hmac = "0.12.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ureq = { version = "2.9.0", default-features = false, features = ["tls"] }
 arboard = "3.4.0"
+ed25519-dalek = "2.2"
+hpke = { version = "0.13", default-features = false, features = ["alloc", "p256"] }
+zeroize = "1.8"
+wasmtime = { version = "49", default-features = false, features = ["cranelift", "runtime", "std"] }
 
 [build-dependencies]
 winres = "0.1.12"

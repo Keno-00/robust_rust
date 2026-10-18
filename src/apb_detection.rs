@@ -1,13 +1,13 @@
-//! Fixed APB name detection from packed BGR capture pixels.
+//! Fixed APB name detection from packed BGR canvas pixels.
 
 use crate::detection::{find_blobs, Blob, Target};
 
-pub const AIM_RED_MIN: u8 = 240;
-pub const TRIGGER_RED_MIN: u8 = 204; // 15% below the aim brightness threshold.
+pub const UNICORN_RED_MIN: u8 = 240;
+pub const PEGASUS_RED_MIN: u8 = 204; // 15% below the unicorn brightness threshold.
 pub const RED_DOMINANCE_MIN: u8 = 96;
 pub const HORIZONTAL_REDUCTION: usize = 2;
 pub const CROSSHAIR_CUT_WIDTH: usize = 5;
-pub const MAX_LETTER_GAP: usize = 6; // Original capture pixels, independent of reduction.
+pub const MAX_LETTER_GAP: usize = 6; // Original canvas pixels, independent of reduction.
 pub const MAX_DETACHED_STROKE_GAP: usize = 2;
 pub const MIN_NAME_RED_PIXELS: usize = 4;
 pub const MIN_NAME_EXTENT: usize = 3;
@@ -128,7 +128,7 @@ pub fn detect_name(
                 continue;
             }
             let pixel = (y * width + x) * 3;
-            if is_red(&img[pixel..pixel + 3], AIM_RED_MIN) {
+            if is_red(&img[pixel..pixel + 3], UNICORN_RED_MIN) {
                 // OR pooling also retains the source subpixel as a bit. Connected
                 // components use nonzero values; those bits refine exact X bounds later.
                 ws.mask[y * mask_width + x / HORIZONTAL_REDUCTION] |=
@@ -196,7 +196,7 @@ pub fn detect_name(
         }
     }
 
-    let mut best: Option<(usize, usize, Bounds)> = None;
+    let mut best: Option<(u64, usize, Bounds)> = None;
     for bounds in ws.names.iter().flatten().copied() {
         if bounds.red_pixels < MIN_NAME_RED_PIXELS
             || bounds.max_x - bounds.min_x + 1 < MIN_NAME_EXTENT
@@ -205,10 +205,12 @@ pub fn detect_name(
             continue;
         }
         let distance = (bounds.min_x + bounds.max_x + 1).abs_diff(width);
-        // Y only breaks exact X-distance ties; it never increases horizontal error.
         let tie_distance = (bounds.min_y + bounds.max_y + 1).abs_diff(height);
-        if best.is_none_or(|(best_x, best_y, _)| (distance, tie_distance) < (best_x, best_y)) {
-            best = Some((distance, tie_distance, bounds));
+        let unicorn_distance = (distance as u64).pow(2) + (tie_distance as u64).pow(2);
+        if best.is_none_or(|(best_distance, best_x, _)| {
+            (unicorn_distance, distance) < (best_distance, best_x)
+        }) {
+            best = Some((unicorn_distance, distance, bounds));
         }
     }
 
@@ -222,14 +224,14 @@ pub fn detect_name(
     })
 }
 
-pub fn trigger_has_red(img: &[u8], width: usize, height: usize) -> bool {
+pub fn pegasus_has_red(img: &[u8], width: usize, height: usize) -> bool {
     if !valid_image(img, width, height)
         || width < CROSSHAIR_CUT_WIDTH
         || height < CROSSHAIR_CUT_WIDTH
     {
         return false;
     }
-    // Keep the existing trigger strip; only its color predicate changes.
+    // Keep the existing pegasus strip; only its color predicate changes.
     let remaining_width = width - CROSSHAIR_CUT_WIDTH;
     let right_start = remaining_width / 2 + CROSSHAIR_CUT_WIDTH / 2;
     let right_width = remaining_width.saturating_sub(right_start);
@@ -243,7 +245,7 @@ pub fn trigger_has_red(img: &[u8], width: usize, height: usize) -> bool {
     for y in start_y..end_y {
         for x in start_x..end_x {
             let pixel = (y * width + x) * 3;
-            if is_red(&img[pixel..pixel + 3], TRIGGER_RED_MIN) {
+            if is_red(&img[pixel..pixel + 3], PEGASUS_RED_MIN) {
                 return true;
             }
         }

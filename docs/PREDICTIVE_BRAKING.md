@@ -15,9 +15,14 @@ remaining distance. Its strength rises as the predicted landing approaches or
 crosses center. The matching curve shapes that increase:
 
 - Linear: linear remaining-distance segment.
-- Logarithmic: normalized `d * ln(1 + d)` segment.
-- Hyperbolic: monotonic sine-squared approach segment.
-- Bezier: quadratic segment with the smoother's control point.
+- Logarithmic: normalized `ln(1 + d)` segment.
+- Hyperbolic: normalized hyperbolic tangent segment.
+- Bezier: pure quadratic segment with a zero control point.
+
+The named smoothers are now stateless curves. ML Aim, when enabled, blends its
+learned displacement into the desired request before this brake runs. See
+[ML Aim and named movement curves](ML_AIM.md) for the formulas and compatibility
+change. The brake remains an explicit independent option.
 
 The curve's position is the current error as a percentage of half the horizontal
 grab width, so changing X Grab changes the brake shape without a fixed pixel

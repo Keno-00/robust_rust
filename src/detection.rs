@@ -371,16 +371,16 @@ pub fn detect_target(
         let s_val = ws.hsv[i * 3 + 1];
         let v_val = ws.hsv[i * 3 + 2];
 
-        let mut matches = in_range(h_val, s_val, v_val, config.aimbot_hsv[0])
-            || in_range(h_val, s_val, v_val, config.aimbot_hsv[1])
-            || in_range(h_val, s_val, v_val, config.aimbot_hsv[2])
+        let mut matches = in_range(h_val, s_val, v_val, config.unicorn_hsv[0])
+            || in_range(h_val, s_val, v_val, config.unicorn_hsv[1])
+            || in_range(h_val, s_val, v_val, config.unicorn_hsv[2])
             || in_range(h_val, s_val, v_val, l4);
 
         if config.pixel_acquisition == PixelAcquisition::Edging {
             // Edging checks 3 ranges only (no l4)
-            matches = in_range(h_val, s_val, v_val, config.aimbot_hsv[0])
-                || in_range(h_val, s_val, v_val, config.aimbot_hsv[1])
-                || in_range(h_val, s_val, v_val, config.aimbot_hsv[2]);
+            matches = in_range(h_val, s_val, v_val, config.unicorn_hsv[0])
+                || in_range(h_val, s_val, v_val, config.unicorn_hsv[1])
+                || in_range(h_val, s_val, v_val, config.unicorn_hsv[2]);
         }
 
         ws.mask[i] = if matches { 255 } else { 0 };
@@ -569,9 +569,9 @@ pub fn detect_target_merged(
         let s_val = ws.hsv[i * 3 + 1];
         let v_val = ws.hsv[i * 3 + 2];
 
-        let matches = in_range(h_val, s_val, v_val, config.aimbot_hsv[0])
-            || in_range(h_val, s_val, v_val, config.aimbot_hsv[1])
-            || in_range(h_val, s_val, v_val, config.aimbot_hsv[2]);
+        let matches = in_range(h_val, s_val, v_val, config.unicorn_hsv[0])
+            || in_range(h_val, s_val, v_val, config.unicorn_hsv[1])
+            || in_range(h_val, s_val, v_val, config.unicorn_hsv[2]);
 
         ws.mask[i] = if matches { 255 } else { 0 };
     }
@@ -662,7 +662,7 @@ pub fn detect_target_merged(
     })
 }
 
-pub fn partition_aim_image(
+pub fn partition_unicorn_image(
     img: &[u8],
     width: usize,
     height: usize,
@@ -703,7 +703,7 @@ pub fn partition_aim_image(
     (new_buf, new_w, new_h)
 }
 
-pub fn check_trigger_color(
+pub fn check_pegasus_color(
     img: &[u8],
     width: usize,
     height: usize,
@@ -762,9 +762,9 @@ pub fn check_trigger_color(
 
             let (h, s, v) = rgb_to_hsv(b, g, r);
 
-            let matches = in_range(h, s, v, config.aimbot_hsv[0].lower, config.aimbot_hsv[0].upper)
-                || in_range(h, s, v, config.aimbot_hsv[1].lower, config.aimbot_hsv[1].upper)
-                || in_range(h, s, v, config.aimbot_hsv[2].lower, config.aimbot_hsv[2].upper)
+            let matches = in_range(h, s, v, config.unicorn_hsv[0].lower, config.unicorn_hsv[0].upper)
+                || in_range(h, s, v, config.unicorn_hsv[1].lower, config.unicorn_hsv[1].upper)
+                || in_range(h, s, v, config.unicorn_hsv[2].lower, config.unicorn_hsv[2].upper)
                 || in_range(h, s, v, l4, u4)
                 || in_range(h, s, v, l5, u5);
 
@@ -829,18 +829,18 @@ mod tests {
     }
 
     #[test]
-    fn test_partition_aim_image() {
+    fn test_partition_unicorn_image() {
         let img = vec![0u8; 100 * 3];
-        let (part_buf, part_w, part_h) = partition_aim_image(&img, 10, 10);
+        let (part_buf, part_w, part_h) = partition_unicorn_image(&img, 10, 10);
         assert_eq!(part_w, 5);
         assert_eq!(part_h, 3);
         assert_eq!(part_buf.len(), 5 * 3 * 3);
     }
 
     #[test]
-    fn test_check_trigger_color() {
+    fn test_check_pegasus_color() {
         let mut config = ProfileConfig::default();
-        config.aimbot_hsv[0] = HsvRange::new([105, 214, 240], [135, 244, 255]);
+        config.unicorn_hsv[0] = HsvRange::new([105, 214, 240], [135, 244, 255]);
 
         let mut img_large = vec![0u8; 100 * 100 * 3];
         // For 100x100: x_start = 54, y_start = 48
@@ -850,6 +850,6 @@ mod tests {
         img_large[idx + 1] = 20; // G
         img_large[idx + 2] = 240;// R
 
-        assert!(check_trigger_color(&img_large, 100, 100, &config));
+        assert!(check_pegasus_color(&img_large, 100, 100, &config));
     }
 }

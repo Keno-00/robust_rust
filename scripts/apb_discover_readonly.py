@@ -1,7 +1,8 @@
 """Discover the observed APB camera and local position in the current build.
 
 Read-only diagnostic. This does not select targets or send mouse movement.
-It fails if the build, object table, or observed object relationships differ.
+It fails if the object table or observed object relationships differ. An
+unverified build requires the explicit diagnostic hash override.
 """
 
 import argparse
@@ -14,9 +15,10 @@ import sys
 from ctypes import wintypes
 from datetime import datetime, timezone
 from pathlib import Path
+from echo_read_protocol import read_exact as echo_read_exact
+from apb_cursor_scan import EXPECTED_SHA256, verify_build_hash
 
 
-EXPECTED_SHA256 = "3BECA02821F50A7B8FEF3E16923FA3FCA0D0B0DD49CC9622520EA500001E1640"
 TABLE_RVA = 0x3CFAC90
 TABLE_ENTRIES = 32768
 CAMERA_CLASS = 16920
@@ -24,7 +26,6 @@ CONTROLLER_CLASS = 4159
 LOCAL_LINK_CLASS = 6683
 POSITION_CLASS = 4741
 OWNER_CLASS = 4155
-IOCTL_ECHO_READ_PROCESS = 0x226002
 INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 
 
@@ -51,8 +52,7 @@ def executable_identity(kernel32, process):
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     actual = digest.hexdigest().upper()
-    if actual != EXPECTED_SHA256:
-        raise RuntimeError(f"Unverified APB build SHA-256 {actual}; expected {EXPECTED_SHA256}")
+    verify_build_hash(actual)
     return str(path), actual
 
 
@@ -112,17 +112,7 @@ def main():
             raise ctypes.WinError(ctypes.get_last_error())
         try:
             def read(address, size):
-                request = ctypes.create_string_buffer(struct.pack("<IIQ", args.pid, size, address), 16)
-                output = ctypes.create_string_buffer(size)
-                count = wintypes.DWORD()
-                if not kernel32.DeviceIoControl(
-                    device, IOCTL_ECHO_READ_PROCESS, request, 16,
-                    output, size, ctypes.byref(count), None,
-                ):
-                    raise ctypes.WinError(ctypes.get_last_error())
-                if count.value != size:
-                    raise RuntimeError(f"Short read at 0x{address:X}: {count.value}/{size}")
-                return output.raw
+                return echo_read_exact(kernel32, device, args.pid, address, size)
 
             (base,) = struct.unpack("<Q", read(info.peb + 0x10, 8))
             if base < 0x10000 or read(base, 2) != b"MZ":
@@ -200,6 +190,8 @@ def main():
                 ]
                 ambiguity = {
                     "valid": False,
+                    "sha256": image_hash,
+                    "build_verified": image_hash == EXPECTED_SHA256,
                     "reason": "local controller link is missing, ambiguous, or too far from camera",
                     "pid": args.pid,
                     "camera_address": f"0x{camera:X}",
@@ -308,6 +300,7 @@ def main():
                 "pid": args.pid,
                 "executable": image_path,
                 "sha256": image_hash,
+                "build_verified": image_hash == EXPECTED_SHA256,
                 "module_base": f"0x{base:X}",
                 "object_table": f"0x{table_address:X}",
                 "table_entries": TABLE_ENTRIES,

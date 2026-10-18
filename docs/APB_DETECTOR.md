@@ -38,8 +38,10 @@ not an ever-expanding merged rectangle. Buffers are retained between frames.
 
 Groups need at least four qualifying source pixels and three pixels of width and
 height. Each group has separate source bounds. The bounding-box midpoint determines
-its center. Selection minimizes absolute horizontal error from the original capture
-center; vertical distance only breaks exact ties. All movement sends Y=0.
+its center. Closest Aim selection minimizes squared screen distance to the original
+capture center. Computer Vision movement sends Y=0; Memory uses its separate
+body-bound Y correction. Closest Distance is available with the Memory aimbot
+source and measures 3D separation from the owned local character.
 
 When a detection frame loses a target, all unsent tracking moves are cancelled.
 If aim remains active, one motion tail starts from the last tracking delta and
@@ -82,23 +84,48 @@ Names on the same line separated by six pixels or less can still join. Distinct
 objects already connected in the pooled mask also cannot be split by grouping.
 These are the important cases to check manually and use to tune the fixed gap rules.
 
-### Trigger sampling and firing delay
+### Independent aimbot and triggerbot sources
 
-The trigger retains the original five-row sampling strip, including its original
-horizontal position and width calculation. Capture area, capture location,
-`grab_shift`, and the aim search geometry are unchanged.
+Triggerbot offers Also Activate Aim only when Aimbot Base Activation is Hold
+or Timed and Trigger Activation is Hold. The persisted opt-in flag adds the
+held trigger key to the aim activation input for either source. It does not
+depend on a firing observation: aiming can acquire the target before the
+cursor becomes red/green. The aim key remains usable independently. Existing
+Timed release, On Aim conditions, disabled-feature checks and Block behavior
+still apply; unsupported mode combinations do not activate this link.
 
-Trigger color uses R >= 204 and the same redness condition as aim. Consequently,
-any aim-accepted source pixel also meets the trigger color condition, but it must
-fall inside the original trigger strip. Seeing a name higher in the aim search alone
-does not cause a shot. Trigger exits on the first qualifying pixel and does not
-build or label a second mask.
+Aimbot and Triggerbot each have Computer Vision / Memory source radios. They can be combined in any pairing. Only an enabled feature opens
+its selected source; enabled ESP also opens the pawn source independently of
+the two input source choices. Color Detection needs DXGI capture; Memory needs EchoDriver.
+A selected source that cannot start or stops reading fails visibly rather than
+switching to the other source. A Memory/Memory pairing needs DXGI capture only
+when predictive braking is enabled.
 
-The first eligible detection can request a shot immediately when the Arduino is
-ready. A detection during cooldown retains one pending shot, even if that red pixel
-disappears before cooldown ends. Repeated detections coalesce into the same pending
-flag; they do not create a list of clicks to replay. Sustained red can continue firing
-while trigger activation remains active.
+For Color Detection, triggerbot uses the original five-row screen sampling
+strip and fixed red predicate. For Memory, it reads APB's four-byte cursor state
+through EchoDriver. For the October 18 update, `130` is white and `48` is green;
+red `99` retains the previous build's mapping pending a new red capture.
+The pointer path is `APB.exe + 0x3BD3340` to an object with the field
+at offset `0x134`; restart validation of this new root remains pending.
+See [core update](APB_CORE_UPDATE_20261018.md). The Memory source can
+start while APB loads or is paused. A null pointer leaves the runner active,
+logs a waiting state, and disables shots until the pointer appears. A driver
+read failure or invalid nonzero pointer stops the runner visibly. An unclassified
+value does not request a shot, is logged, and stops the runner if it persists
+for 500 ms. See `docs/APB_CURSOR_MEMORY.md` for the discovery evidence.
+
+The Triggerbot tab has Memory-only "Shoot on red" and "Shoot on green"
+checkboxes. Existing profiles default to red only. Either color or both can be
+selected; at least one must be selected. The selected cursor state can keep
+firing at the configured delay while it remains visible. Memory mode clears a
+pending shot when the cursor leaves the selected state. Color Detection keeps
+its fixed red screen predicate and does not use these checkboxes.
+
+The first eligible observation can request a shot immediately when the Arduino is
+ready. In Color Detection, a red observation during cooldown retains one pending
+shot even if the observation changes. In Memory, the pending shot is kept only
+while a selected cursor state remains visible. Repeated eligible observations
+coalesce into one pending flag; they do not create a list of clicks to replay.
 
 The sender enforces the configured `Delay` as a minimum interval measured from each
 successful serial shoot-command write. It sends at most one shot per polling cycle
@@ -110,11 +137,18 @@ Trigger deactivation, blocking, shutdown, port changes, and serial failures clea
 the pending shot. A detection is only queued when the Arduino is ready. The sender
 holds the same lock through a shoot write so cancellation cannot leave an extracted
 request waiting to be sent afterward. Activation/key requirements are unchanged.
-The legacy `trigthresh` field remains readable but does not change the original ROI.
+The legacy `trigthresh` field remains readable but does not change cursor-state
+triggering.
+In Memory trigger mode, APB losing focus also clears the pending shot.
 
 ## Profile compatibility
 
-Profile files continue to load and save using the existing schema. Legacy HSV,
+Profile files continue to load and save using the existing schema. The existing
+`coordinate_source` key remains the aimbot choice. The new `trigger_source`
+key stores the triggerbot choice; profiles without it default to Memory, which
+preserves the prior EchoDriver-trigger behavior. `trigger_on_red` and
+`trigger_on_green` save the Memory trigger state choices and default to true
+and false respectively when absent. Legacy HSV,
 pixel-acquisition, downscale, highest-pixel, merge-distance, rectangle/area filter,
 and X-only fields remain readable for compatibility but do not select or change
 the fixed APB detector. Aim-shift Y is also inactive. The related controls have been
@@ -149,8 +183,12 @@ immediate cancellation; reacquire a name on the opposite side to check that the 
 tail is cancelled and smoothing starts without old velocity.
 Check continuous tracking beyond several idle-reset periods and compare short ramps
 with longer ramps using `Ramp Ease: S-curve`. Save/reload the profile to retain it.
-For trigger, check a brief red detection within the original sampling strip during
-cooldown: one pending shot should fire when eligible, with no accumulated burst.
-Verify that releasing trigger activation or blocking cancels it, yellow/white fail
-the redness check, and sustained red respects the configured firing delay. Keep
-the original capture area and location during these manual checks.
+Check all four aimbot/triggerbot source pairings and save/reload each choice.
+Color/Color should not require EchoDriver; Memory/Memory without predictive
+braking should not require DXGI capture. For Memory trigger, check the visible
+EchoDriver cursor readout against white, green, and red after a fresh APB launch.
+Check red-only, green-only, and both selections. A selected state held through
+cooldown should produce one pending shot, with no accumulated burst. Moving to
+an unselected state or white should cancel it. Verify that releasing trigger
+activation or blocking also cancels it and that sustained selected states
+respect the configured firing delay.
