@@ -15,7 +15,7 @@ use std::error::Error;
 use std::rc::Rc;
 use std::time::Instant;
 
-pub const APP_VERSION: &str = "1.5";
+pub const APP_VERSION: &str = "2.1";
 pub const APP_NAME: &str = "Verux.APB";
 pub const WINDOW_SIZE: [f32; 2] = [500.0, 500.0];
 pub const BANNER_SIZE: [f32; 2] = [480.0, 50.0];

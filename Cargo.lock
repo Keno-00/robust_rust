@@ -2322,7 +2322,7 @@ dependencies = [
 
 [[package]]
 name = "robust_rust"
-version = "1.5.0"
+version = "2.1.0"
 dependencies = [
  "aes-gcm",
  "arboard",
