@@ -60,6 +60,19 @@ Screen amplitude and the repeat interval are simulated; measured world height
 is not a calibrated screen displacement. Falls and approach are explicitly
 labelled simulations.
 
+## Sharing models and configs
+
+Users share files themselves (Discord, any file host); nothing is hosted. Under ML Aim, Export writes the
+selected model as a compact `.vxmodel`; Import (or dropping a file on the window) validates it like a
+trained model, adds bounds on every coefficient, never overwrites, gives a clashing ID a new one, and
+selects it when its source matches. A model is useless without a licensed inference module.
+
+Config Export writes a `.vxprofile` without machine settings (COM port, resolutions, shifts, FPS, polling
+rate, APB folder, ML model). Import is strict (unknown fields, other editions, bad values rejected), always
+keeps this PC's machine settings, and applies to the open config; press Save to keep it. `config.ini` itself
+is DPAPI-encrypted for one Windows user and cannot be shared. Drops onto the elevated window depend on
+Windows allowing them; the Import buttons always work.
+
 ## Learned movement
 
 src/ml_talisman.rs fits each acquisition independently as a 12-basis DMP

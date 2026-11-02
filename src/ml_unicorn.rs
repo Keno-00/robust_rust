@@ -274,6 +274,50 @@ impl Store {
         Ok(())
     }
 
+    /// Adds a model shared by another user. It is validated like a trained one,
+    /// never overwrites an existing file, and gets a new ID if its ID is taken.
+    pub fn import_model(&self, bytes: &[u8]) -> Result<Model, String> {
+        let mut model: Model = serde_json::from_slice(bytes)
+            .map_err(|_| "This is not a valid Verux model.".to_string())?;
+        model.validate()?;
+        model.personality.validate_shared()?;
+        if model.datasets.len() > 64 || model.datasets.iter().any(|id| valid_id(id).is_err()) {
+            return Err("This model lists invalid recordings and was not imported.".into());
+        }
+        let existing = self.path("models", &model.id)?;
+        if existing.exists() {
+            let same = fs::read(&existing)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Model>(&b).ok())
+                .is_some_and(|m| {
+                    // Float text does not round-trip exactly, so compare identity, not bytes.
+                    m.created_at == model.created_at
+                        && m.name == model.name
+                        && m.flick_count == model.flick_count
+                        && m.tracking_count == model.tracking_count
+                        && m.tracking_rmse.to_bits() == model.tracking_rmse.to_bits()
+                        && m.personality.source == model.personality.source
+                        && m.personality.flicks.len() == model.personality.flicks.len()
+                        && m.personality.sequences.len() == model.personality.sequences.len()
+                });
+            if same {
+                return Err("This model is already installed.".into());
+            }
+            model.id = new_id()?;
+        }
+        self.save_model(&model)?;
+        crate::log_info!("ML model {} imported from a shared file.", model.id);
+        Ok(model)
+    }
+
+    pub fn export_model(&self, id: &str, path: &Path) -> Result<(), String> {
+        let model = self.load_model(id)?;
+        let bytes = serde_json::to_vec(&model).map_err(|e| format!("Cannot encode model: {e}"))?;
+        fs::write(path, bytes).map_err(|e| format!("Cannot write {}: {e}", path.display()))?;
+        crate::log_info!("ML model {id} exported.");
+        Ok(())
+    }
+
     pub fn rename_model(&self, id: &str, name: &str) -> Result<(), String> {
         let mut model = self.load_model(id)?;
         model.name = name.trim().to_owned();

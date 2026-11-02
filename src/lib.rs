@@ -64,6 +64,7 @@ mod protocol_names;
 mod native_text;
 mod folio_keys;
 mod folio_store;
+pub(crate) mod folio_share;
 
 mod sb_protect;
 pub mod visual_style;

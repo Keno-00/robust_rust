@@ -48,6 +48,19 @@ impl MlUi {
         Ok(())
     }
 
+    /// Installs a shared model and selects it when it matches the coordinate source.
+    pub(crate) fn add_model(&mut self, bytes: &[u8], config: &mut ProfileConfig) -> Result<(), String> {
+        let model = Store::open()?.import_model(bytes)?;
+        self.refresh()?;
+        if model.personality.source == Self::source_name(config) {
+            config.ml_unicorn_model = model.id;
+            self.status.clear();
+        } else {
+            self.status = format!("Imported {} ({}). Switch the coordinate source to use it.", model.name, model.personality.source);
+        }
+        Ok(())
+    }
+
     pub fn busy(&self) -> bool {
         self.window.is_some() || self.window_loading.is_some() || self.training.is_some()
     }
@@ -259,6 +272,15 @@ impl MlUi {
                 },
             );
         }
+        ui.same_line();
+        if ui.button("Import") {
+            if let Some(path) = crate::folio_share::choose_file(false, "", "Verux model", "*.vxmodel;*.json", "vxmodel")? {
+                match crate::folio_share::read_shared(&path, config)? {
+                    crate::folio_share::Shared::Model(bytes) => self.add_model(&bytes, config)?,
+                    crate::folio_share::Shared::Profile(_) => return Err("This is a config file. Import it with Import Config.".into()),
+                }
+            }
+        }
         drop(disabled);
         if let Some(progress)=&self.dataset_progress {
             let percent=progress.load(std::sync::atomic::Ordering::Acquire).min(99);
@@ -310,6 +332,15 @@ impl MlUi {
         ui.same_line();
         if ui.button(surface.text("u128")) {
             requested = Some(MlWindow::Preview);
+        }
+        ui.same_line();
+        if ui.button("Export") {
+            if let Some(i) = selected {
+                let name = crate::folio_share::suggested_name(&self.models[i].name, "vxmodel");
+                if let Some(path) = crate::folio_share::choose_file(true, &name, "Verux model", "*.vxmodel", "vxmodel")? {
+                    Store::open()?.export_model(&self.models[i].id, &path)?;
+                }
+            }
         }
         drop(disabled);
 

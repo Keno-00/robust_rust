@@ -160,6 +160,31 @@ impl imgui::ClipboardBackend for ClipboardSupport {
     }
 }
 
+/// APB runs elevated, and Windows blocks drops from a normal Explorer window onto
+/// an elevated one unless these messages are allowed. Failure is logged; the
+/// Import buttons work regardless.
+fn allow_file_drops(window: &glium::winit::window::Window) {
+    use glium::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows::Win32::{
+        Foundation::HWND,
+        UI::WindowsAndMessaging::{ChangeWindowMessageFilterEx, MSGFLT_ALLOW},
+    };
+    let Ok(handle) = window.window_handle() else {
+        crate::log_err!("File drop setup failed: window handle unavailable.");
+        return;
+    };
+    let RawWindowHandle::Win32(handle) = handle.as_raw() else {
+        return;
+    };
+    let hwnd = HWND(handle.hwnd.get());
+    // WM_DROPFILES, WM_COPYGLOBALDATA, WM_COPYDATA
+    for message in [0x233u32, 0x49, 0x4A] {
+        if let Err(error) = unsafe { ChangeWindowMessageFilterEx(hwnd, message, MSGFLT_ALLOW, None) } {
+            crate::log_err!("File drop setup failed for message {message:#x}: {error}");
+        }
+    }
+}
+
 pub fn run() -> Result<(), Box<dyn Error>> {
     let event_loop = glium::winit::event_loop::EventLoop::builder().build()?;
     let (window, display) = glium::backend::glutin::SimpleWindowBuilder::new()
@@ -168,6 +193,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         .build(&event_loop);
     window.set_resizable(false);
     window.set_decorations(true);
+    allow_file_drops(&window);
 
     if let Ok(icon_image) = image::load_from_memory(include_bytes!("../assets/veruxapp.ico")) {
         let icon_rgba = icon_image.to_rgba8();
@@ -425,6 +451,16 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         } => {
             if new_size.width > 0 && new_size.height > 0 {
                 display.resize((new_size.width, new_size.height));
+            }
+        }
+        glium::winit::event::Event::WindowEvent {
+            event: glium::winit::event::WindowEvent::DroppedFile(path),
+            ..
+        } => {
+            if state.ml.busy() {
+                show_error("Wait for the ML task to finish, then drop the file again.");
+            } else if let Err(error) = import_shared(&mut state, &path) {
+                show_error(&error);
             }
         }
         event => {
@@ -867,6 +903,34 @@ fn binding_button(ui: &Ui, state: &mut UiState, target: BindingTarget, label: &s
     if ui.button(format!("{label}: {value}")) {
         state.binding_target = Some(target);
         state.awaiting_release = true;
+    }
+}
+
+/// Imports a model or config file chosen in a dialog or dropped on the window.
+fn import_shared(state: &mut UiState, path: &std::path::Path) -> Result<(), String> {
+    match crate::folio_share::read_shared(path, &state.config)? {
+        crate::folio_share::Shared::Model(bytes) => state.ml.add_model(&bytes, &mut state.config),
+        crate::folio_share::Shared::Profile(config) => {
+            state.lines_color = rgb_to_float(config.lines_color);
+            state.halo_color = rgb_to_float(config.halo_color);
+            state.ui_color = rgb_to_float(config.ui_color);
+            state.config = config;
+            show_info("Config imported. Press Save to keep it.");
+            Ok(())
+        }
+    }
+}
+
+fn show_info(message: &str) {
+    let text: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        windows::Win32::UI::WindowsAndMessaging::MessageBoxW(
+            None,
+            windows::core::PCWSTR(text.as_ptr()),
+            windows::core::w!("Verux"),
+            windows::Win32::UI::WindowsAndMessaging::MB_OK
+                | windows::Win32::UI::WindowsAndMessaging::MB_ICONINFORMATION,
+        );
     }
 }
 
@@ -1815,6 +1879,26 @@ fn draw_general(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame
                 }
             }
             Err(error) => show_error(&format!("Save config failed: {error}")),
+        }
+    }
+    ui.same_line();
+    if ui.button("Export Config") {
+        state.config.lines_color = float_to_rgb(state.lines_color);
+        state.config.halo_color = float_to_rgb(state.halo_color);
+        state.config.ui_color = float_to_rgb(state.ui_color);
+        let name = crate::folio_share::suggested_name(state.current_save_entry_name.trim(), "vxprofile");
+        match crate::folio_share::choose_file(true, &name, "Verux config", "*.vxprofile", "vxprofile") {
+            Ok(Some(path)) => if let Err(error) = crate::folio_share::export_profile(&state.config, &path) { show_error(&error); },
+            Ok(None) => {}
+            Err(error) => show_error(&error),
+        }
+    }
+    ui.same_line();
+    if ui.button("Import Config") {
+        match crate::folio_share::choose_file(false, "", "Verux config", "*.vxprofile;*.json", "vxprofile") {
+            Ok(Some(path)) => if let Err(error) = import_shared(state, &path) { show_error(&error); },
+            Ok(None) => {}
+            Err(error) => show_error(&error),
         }
     }
     ui.color_edit3(surface.text("u030"), &mut state.ui_color);

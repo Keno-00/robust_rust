@@ -70,4 +70,25 @@ impl Personality {
         }
         Ok(())
     }
+
+    /// Extra bounds for models received from other users (validate() only checks finiteness).
+    pub fn validate_shared(&self) -> Result<(), String> {
+        const LIMIT: f64 = 1.0e6;
+        let in_range = |v: &f64| v.abs() <= LIMIT;
+        if !self.weights.iter().flatten().all(in_range)
+            || !self.scales.iter().all(in_range)
+            || !self.sequences.iter().all(|s| {
+                s.context.iter().chain(s.residual.iter().flatten()).all(in_range)
+            })
+            || !self.flicks.iter().all(|f| {
+                f.direction.iter().chain(&f.initial_velocity).chain(f.weights.iter().flatten()).all(in_range)
+                    && f.distance <= LIMIT
+                    && f.duration <= LIMIT
+                    && f.reaction <= LIMIT
+            })
+        {
+            return Err("This model contains out-of-range values and was not imported.".into());
+        }
+        Ok(())
+    }
 }
