@@ -1,6 +1,12 @@
 # Launcher release workflow
 
-## Current release (2026-11-02)
+## Current release (2026-11-02, later)
+
+Catalog revision 100 publishes launcher 0.3.1 (adds a "Do not show again" checkbox to notices; the choice is stored in `%LOCALAPPDATA%\Verux\Launcher\dismissed-notices.json`) alongside the unchanged APB 2.1.4. Launcher MSI `target/packages/launcher-live-source-r100/verux.launcher/packages/verux.launcher-0.3.1.msi`, SHA-256 `021ff5c9…ca17`, ProductCode `{F63F77E6-38EF-21D3-3FD6-597FB571A160}`. The prepared catalog passed the built launcher's `--verify-catalog`, and the live catalog reports revision 100 / launcher 0.3.1 / APB 2.1.4. Launcher install/upgrade from 0.3.0 was not exercised on a test PC before publication.
+
+The same day: ML Aim dataset artifacts replaced (full `0fe722be…b805`, color `42700767…6c09`) and the license Worker redeployed (version `99cc3f51`); training and inference artifacts are unchanged. Library metadata now carries one APB notice, `apb-ml-aim-retrain-20261102` ("ML Aim updated": record a new Dataset and retrain). Withdraw it after a few weeks by removing it from `library.source.json` and republishing with `-Library`. Users still on launcher 0.3.0 see it on every APB card click until they update.
+
+## Earlier release (2026-11-02)
 
 Catalog revision 96 publishes APB 2.1.4 (client 2.1.4, hotfix commit `39aa1b3`) alongside the unchanged launcher 0.3.0. The MSI is `target/packages/apb-launcher-2.1.4`, ProductCode `{BFA2BACE-C02D-9F47-14B5-8ED52A27D0D6}`, SHA-256 `4bace36e…5eedb`; client SHA-256 `35b599c7…c45422`. Driver payload, scripts and artwork are byte-identical to 2.1.3, except `DriverInstaller.exe`, which was recompiled from the same source (48 bytes of compiler build stamp and IDs differ), and `driver.json`, which has the same content in a different key order. The installed 0.3.0 launcher verified the live catalog, and the R2 MSI matched the signed hash. Installing or upgrading with the 2.1.4 MSI was not qualified on a test PC before publication.
 
