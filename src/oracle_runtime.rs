@@ -55,7 +55,7 @@ impl InferenceRuntime {
         if module.imports().next().is_some() {return Err("Inference contains forbidden imports.".into());}
         let limits=StoreLimitsBuilder::new().memory_size(128*1024*1024).instances(1).memories(1).tables(1).table_elements(4096).build();
         let mut store=Store::new(&engine,limits); store.limiter(|s|s);
-        store.set_fuel(200_000_000).map_err(|_|"Cannot set inference limits.")?;
+        store.set_fuel(2_000_000_000).map_err(|_|"Cannot set inference limits.")?;
         let instance=Instance::new(&mut store,&module,&[]).map_err(|_|"Inference initialization failed.")?;
         let memory=instance.get_memory(&mut store,"memory").ok_or("Inference memory is unavailable.")?;
         let allocate=instance.get_typed_func::<u32,u32>(&mut store,"prepare_input").map_err(|_|"Inference ABI is incompatible.")?;

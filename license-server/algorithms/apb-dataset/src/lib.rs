@@ -221,11 +221,19 @@ fn acquisition(number: usize, color: bool, width: f64, height: f64, cursor: [f64
         let right = number % 2 == 0;
         let down = number % 4 < 2;
         let distance = [80.0, 160.0, 240.0][(number / 4) % 3];
-        let sign_x = if right { 1.0 } else { -1.0 };
+        // Never shorten a move against a wall: if the full distance does not
+        // fit in the preferred direction, go the other way.
+        let mut sign_x = if right { 1.0 } else { -1.0 };
+        if !(width * 0.14..=width * 0.86).contains(&(cursor[0] + sign_x * distance)) {
+            sign_x = -sign_x;
+        }
         target[0] = (cursor[0] + sign_x * distance).clamp(50.0, width - 50.0);
         if !color {
-            target[1] = (cursor[1] + (if down { 1.0 } else { -1.0 }) * distance * 0.5)
-                .clamp(85.0, height - 50.0);
+            let mut sign_y = if down { 1.0 } else { -1.0 };
+            if !(100.0..=height - 65.0).contains(&(cursor[1] + sign_y * distance * 0.5)) {
+                sign_y = -sign_y;
+            }
+            target[1] = (cursor[1] + sign_y * distance * 0.5).clamp(85.0, height - 50.0);
         }
         if !true || (target[0] - cursor[0]).hypot(target[1] - cursor[1]) > radius * 4.0 {
             break;
@@ -307,7 +315,23 @@ pub extern "C" fn course(
                 lower
             }
         }
-        3 => (cx + 55.0 * (time * 1.2).sin()).clamp(50.0, width - 50.0),
+        3 => {
+            // Post-click drift: direction, size and rate are seeded by where the
+            // target was acquired, and it always turns inward near a wall.
+            let seed = cx.to_bits();
+            let dir = if cx < 110.0 {
+                1.0
+            } else if cx > width - 110.0 {
+                -1.0
+            } else if unit(seed, 3) < (0.5 - (cx - width * 0.5) / width).clamp(0.1, 0.9) {
+                1.0 // more likely toward the centre the further off it is
+            } else {
+                -1.0
+            };
+            let amplitude = 40.0 + 50.0 * unit(seed, 4);
+            let rate = 0.9 + 0.8 * unit(seed, 5);
+            (cx + dir * amplitude * (time * rate).sin()).clamp(50.0, width - 50.0)
+        }
         4 => {
             if number == 6 && occluded(time) {
                 0.0
