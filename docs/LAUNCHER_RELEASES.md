@@ -1,6 +1,12 @@
 # Launcher release workflow
 
-## Current qualified release (2026-10-19)
+## Current release (2026-11-02)
+
+Catalog revision 96 publishes APB 2.1.4 (client 2.1.4, hotfix commit `39aa1b3`) alongside the unchanged launcher 0.3.0. The MSI is `target/packages/apb-launcher-2.1.4`, ProductCode `{BFA2BACE-C02D-9F47-14B5-8ED52A27D0D6}`, SHA-256 `4bace36e…5eedb`; client SHA-256 `35b599c7…c45422`. Driver payload, scripts and artwork are byte-identical to 2.1.3, except `DriverInstaller.exe`, which was recompiled from the same source (48 bytes of compiler build stamp and IDs differ), and `driver.json`, which has the same content in a different key order. The installed 0.3.0 launcher verified the live catalog, and the R2 MSI matched the signed hash. Installing or upgrading with the 2.1.4 MSI was not qualified on a test PC before publication.
+
+The paired license Worker fix (deployment `2837dae2`) stopped launcher library checks from revoking live APB sessions; it is independent of this package.
+
+## Previous qualified release (2026-10-19)
 
 Launcher 0.3.0 is published in signed catalog revision 13, alongside the unchanged APB 2.1.3 installer. The authoritative Worker deployment for the library/access endpoints is `26aa9288-c12a-4b73-ace7-c139ca1fc41a`. Library metadata is live with no notices. Migration 0005 was applied and recorded individually; the pre-existing 0004 migration status was left untouched.
 
