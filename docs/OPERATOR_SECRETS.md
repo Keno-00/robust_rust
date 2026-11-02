@@ -21,6 +21,8 @@ Until 2026-11-02 these files lived under `%LOCALAPPDATA%`. Work done inside the 
 | Leonardo firmware readback | `VeruxFirmwareBackups\20261004\` | Recovery evidence (docs/LEONARDO_SETUP.md) | Historical only. |
 | R2 upload credentials | `C:\Users\Admin\Desktop\deploy\api token.txt` | `Publish-Release.ps1 -CredentialsFile` (looks for "Access Key ID" / "Secret Access Key" labels) | Create a new bucket-scoped R2 API token in the Cloudflare dashboard. |
 
+**Open item:** the private key that signed `EchoDriver.sys` (certificate `EchoDriver.cer`, thumbprint `18537D3D…2065407`) is not in the secrets folder. It is probably in the Windows certificate store. Locate it, back it up into the secrets folder, and add a row above.
+
 Copies held by Cloudflare (write-only, cannot be read back): `RELEASE_SIGNING_KEY_PKCS8` on the `verux-catalog-renewal` Worker, and the response signing key on `verux-license`.
 
 ## Backup limits

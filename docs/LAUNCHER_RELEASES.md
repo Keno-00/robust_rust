@@ -72,7 +72,7 @@ Publish reviewed library/notice metadata without rebuilding applications or publ
 
 The publisher validates field, size, product and notice limits and conditionally replaces the prior configuration using its ETag. Remove a notice from the array and republish to withdraw it. Do not put keys, customer data or internal documentation in notices. Routine catalog renewal does not edit library metadata or notices.
 
-Launcher source: sibling folder ../verux_launcher. Authoritative license server: license-server. Licensing behavior is unchanged.
+Launcher source: sibling folder ../verux_launcher (private repo Keno-00/verux_launcher). EchoDriver source: ../drayebr (Keno-00/drayebr). Leonardo: ../verux.leonardo (Keno-00/verux.leonardo). Authoritative license server: license-server. Licensing behavior is unchanged.
 
 ## Authoring and thumbnails
 
