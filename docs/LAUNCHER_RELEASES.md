@@ -1,6 +1,10 @@
 # Launcher release workflow
 
-## Current release (2026-11-02, final)
+## Current release (2026-11-02, launcher 0.3.2)
+
+Catalog revision 111 publishes launcher 0.3.2 alongside the unchanged APB 2.1.6. Before any driver install, repair or update the launcher checks Secure Boot and test signing. With Secure Boot on it shows the manual steps (User Guide and Setup.pdf, 3.1) and stops. With test signing off it asks for confirmation, runs `bcdedit /set testsigning on` through a UAC prompt, and offers a restart. It never changes Secure Boot. Launcher MSI `target/packages/launcher-0.3.2/packages/verux.launcher-0.3.2.msi`, SHA-256 `fb0c7c6b…eaf`, ProductCode `{3DDB55FF-5FB2-5F90-48CC-E5B556AE36C2}`; catalog source `target/packages/launcher-live-source-r111`. The prepared catalog passed the built launcher's `--verify-catalog`, and the live catalog reports revision 111 / launcher 0.3.2 / APB 2.1.6. A first revision 106 was prepared against stale APB 2.1.5 (live was already 110), rejected by the publisher and deleted. The APB MSI was not rebuilt, so its `DriverInstaller.exe` backstop check is not in any published package yet. Launcher install/upgrade from 0.3.1 and the UAC/restart flow were not qualified on a test PC before publication.
+
+## Earlier release (2026-11-02, final)
 
 Catalog revision 110 publishes APB 2.1.6 alongside launcher 0.3.1. 2.1.6 raises the inference initialization fuel from 200 million to 2 billion (initialization costs about 45 fuel per model byte; models trained on three or more courses failed Preview and Start with "Inference model initialization exceeded its limits"). The same day the ML Aim dataset module was replaced again to fix a one-sided flick course (every acquisition target landed right of centre because post-click drift was always rightward); dataset digests full `c85cba40…8e19`, color `97fbc772…d979`, Worker version `6bde47e2`. The MSI is `target/packages/apb-launcher-2.1.6/packages/verux.apb-2.1.6.msi`, SHA-256 `903bd26a…`; catalog source `target/packages/launcher-live-source-r110`. Driver payload is byte-identical to 2.1.4 except the recompiled `DriverInstaller.exe`. Installing or upgrading with this MSI was not qualified on a test PC before publication.
 
