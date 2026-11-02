@@ -123,7 +123,7 @@ The MSI must:
 3. Preserve settings, licenses, and all existing security behavior.
 4. Provide proper upgrade, repair, rollback, files-in-use, driver/service, and restart handling.
 5. Have the exact payload bytes named in the signed installed-file manifest.
-6. Keep the existing approved driver/certificate flow. The launcher imposes no official Windows certificate requirement and changes no OS security policy.
+6. Keep the existing approved driver/certificate flow. The launcher imposes no official Windows certificate requirement and never changes Secure Boot. For driver products it stops with the manual steps if Secure Boot is on, and enables test-signing (bcdedit, UAC prompt) only after the user confirms.
 7. Reject conflicting existing driver-service ownership. Do not let independently owned product packages silently replace a shared service.
 8. Be qualified in a disposable Windows environment before publication, especially driver failure, rollback, repair, and restart cases.
 
