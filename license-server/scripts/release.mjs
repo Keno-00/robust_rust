@@ -3,6 +3,7 @@ import {readFile,writeFile,mkdir,copyFile,stat,realpath} from 'node:fs/promises'
 import {createReadStream} from 'node:fs';
 import {resolve,dirname,join,extname} from 'node:path';
 import {spawnSync} from 'node:child_process';
+import {assertCanonicalWorkspace} from './canonical-workspace.mjs';
 
 const LIMIT=2*1024*1024*1024;
 const prefix=Buffer.concat([Buffer.from('VERUX-RELEASE-CATALOG-V1'),Buffer.from([10])]);
@@ -223,6 +224,10 @@ async function publish(folder){
 }
 async function main(){
  const [command,a,b]=process.argv.slice(2);
+ if(command==='prepare')assertCanonicalWorkspace(b||fail('New output directory required'));
+ else if(command==='publish')assertCanonicalWorkspace(a||fail('Prepared release directory required'));
+ else if(command==='renew')assertCanonicalWorkspace(a||fail('Current prepared release directory required'),b||fail('New output directory required'));
+ else if(command==='publish-library')assertCanonicalWorkspace();
  if(command==='init')await init(a);
  else if(command==='prepare')await prepare(a||fail('Source JSON required'),b||fail('New output directory required'));
  else if(command==='publish')await publish(a||fail('Prepared release directory required'));

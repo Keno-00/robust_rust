@@ -5,6 +5,10 @@ compatibility_date = "2026-08-27"
 workers_dev = true
 preview_urls = false
 
+# Deploys run only from the canonical checkout (AGENTS.md workspace rule).
+[build]
+command = "node scripts/canonical-workspace.mjs"
+
 [vars]
 APB_CB_SURFACE_VISUALS_DIGEST = "131f64083871a2c5c9309707ef08c413b5460e7fff9e900525446573d4be29b6"
 APB_SURFACE_VISUALS_DIGEST = "629c55d4153d5643298815d2acd0686c232190829e029571db9ad5328e50aa6a"

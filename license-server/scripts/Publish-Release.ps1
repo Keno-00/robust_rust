@@ -9,6 +9,8 @@ param(
     [string]$Bucket='verux-release-artifacts'
 )
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'VeruxWorkspace.ps1')
+Assert-VeruxCanonicalWorkspace -OutputPath $(if ($Library) { @() } else { $PreparedDirectory })
 . (Join-Path $PSScriptRoot 'VeruxSecrets.ps1')
 if(-not $PrivateKeyFile){$PrivateKeyFile=Join-Path (Get-VeruxSecretsRoot) 'Verux\ReleasePublisher\release-ed25519.pem'}
 $raw=Get-Content -Raw -LiteralPath $CredentialsFile

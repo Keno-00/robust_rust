@@ -18,6 +18,15 @@
 - Keep significant changes reviewable through focused modules, explicit product constants, migrations, documentation, and reproducible validation commands.
 - Report validation failures directly. Do not hide them by switching implementations or weakening checks.
 
+## Workspace and sandbox rule
+
+- The only workspace is the main checkout: `C:\Users\Admin\Documents\source_repos\robust_rust` (launcher: `...\source_repos\verux_launcher`). Source changes, docs, build output, release packages and records all live there.
+- Do not work in a copy, a git worktree, an agent sandbox (Codex app sandbox, `.codex/worktrees`, `.claude/worktrees`, Gemini/Antigravity scratch folders), `%TEMP%`, or anywhere under `%LOCALAPPDATA%` / `%APPDATA%`. If your tool starts you anywhere else, stop and tell the user before changing anything.
+- Release builds go to this repo's `target/` (packages in `target/packages/<name>`). Never use a `--target-dir` or output folder outside the repo, and never leave a release build somewhere else.
+- Nothing is orphaned: every change that matters is committed to this repo before the session ends. Scratch files outside the repo must be disposable; anything worth keeping moves in and is committed.
+- End every session with a handover: commits made, anything left uncommitted, anything deployed or published, and anything created outside the repo (with its path). The next agent, from any provider, must be able to continue from `git log` and the docs alone.
+- Enforced: `build.rs` fails release builds outside the main checkout or with output outside `target/`; Wrangler deploys (`[build]` step), `release.mjs`, `New-ProductRelease.ps1`, `Publish-Release.ps1` and `publish-surface.ps1` refuse to run from anywhere else. Do not weaken or bypass these checks; if one blocks you, move the work into the main checkout.
+
 ## Secrets and operator transparency
 
 - Keys, credentials, signing material and private backups live only in the operator secrets folder, `C:\Users\Admin\Desktop\deploy\Verux Secrets` (resolved by `license-server/scripts/VeruxSecrets.ps1`). Never write them to `%LOCALAPPDATA%`, `%APPDATA%`, temp folders, or anywhere an app sandbox can redirect.

@@ -4,6 +4,8 @@ param(
     [ValidateSet('surface','surface.objects','surface.eligibility','surface.hitsound','surface.visuals')][string]$Catalog = 'surface'
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'VeruxWorkspace.ps1')
+Assert-VeruxCanonicalWorkspace
 . (Join-Path $PSScriptRoot 'VeruxSecrets.ps1')
 if ($Product -eq 'verux.apb.cb' -and $Catalog -notin @('surface.eligibility','surface.visuals')) { throw 'Color supports only its enrolled eligibility and visuals catalogs.' }
 Add-Type -AssemblyName System.Security

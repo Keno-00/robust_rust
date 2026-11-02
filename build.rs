@@ -1,4 +1,5 @@
 fn main() {
+    enforce_canonical_workspace();
     generate_pointer_encoding_material();
     generate_hit_sound_catalog();
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
@@ -10,6 +11,45 @@ fn main() {
         res.set("InternalName", "verux_apb");
         res.compile().expect("failed to compile Windows resources");
     }
+}
+
+/// Release builds come only from the canonical checkout and land in its own
+/// target folder; see AGENTS.md "Workspace and sandbox rule".
+fn enforce_canonical_workspace() {
+    println!("cargo:rerun-if-env-changed=VERUX_SOURCE_ROOT");
+    if std::env::var("PROFILE").as_deref() != Ok("release") {
+        return;
+    }
+    let root = std::env::var("VERUX_SOURCE_ROOT")
+        .unwrap_or_else(|_| r"C:\Users\Admin\Documents\source_repos".to_string());
+    let real = |path: &std::path::Path| {
+        std::fs::canonicalize(path)
+            .map(|p| p.to_string_lossy().to_ascii_lowercase())
+            .unwrap_or_else(|_| panic!("Workspace rule: cannot resolve {}", path.display()))
+    };
+    let expected = std::path::Path::new(&root).join("robust_rust");
+    let manifest = std::path::PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR").expect("Cargo manifest directory missing"),
+    );
+    let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo OUT_DIR missing"));
+    assert!(
+        expected.exists() && real(&manifest) == real(&expected),
+        "Workspace rule: release builds must run from {} (this checkout: {}). Move the work into the main repo instead of building a copy or sandbox.",
+        expected.display(),
+        manifest.display()
+    );
+    assert!(
+        manifest.join(".git").is_dir(),
+        "Workspace rule: {} is a git worktree or has no repository; release from the main checkout.",
+        manifest.display()
+    );
+    let target = real(&manifest.join("target"));
+    assert!(
+        real(&out).starts_with(&(target + "\\")),
+        "Workspace rule: release output must stay under {}\\target (OUT_DIR is {}). Do not use a --target-dir outside the repo.",
+        manifest.display(),
+        out.display()
+    );
 }
 
 fn generate_hit_sound_catalog() {

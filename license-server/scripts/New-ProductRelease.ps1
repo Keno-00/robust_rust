@@ -14,6 +14,8 @@ param(
     [switch]$DesktopShortcut
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'VeruxWorkspace.ps1')
+Assert-VeruxCanonicalWorkspace -OutputPath $OutputDirectory
 function Xml([string]$Value) { [Security.SecurityElement]::Escape($Value) }
 function StableGuid([string]$Value) {
     $sha = [Security.Cryptography.SHA256]::Create()
