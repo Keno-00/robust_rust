@@ -25,7 +25,17 @@ approach with growing target size, brief disappearance/reacquisition, discrete
 target changes, moving acquisition, and elevation or horizontal stop/start.
 Click each run's starting target to begin. Memory adds measured jumps and
 approved simulated falls; color uses slow and fast horizontal runs instead.
-Each course takes roughly four minutes plus the acquisition/reaction periods.
+Since 2026-11-02 the continuous paths are no longer fixed sines. They are
+seeded and reproducible: band-limited wander, segmented speed with abrupt
+reversals/accelerations/stops, edge-to-edge hugging (run 8), a randomized switch
+schedule (run 7) and three randomized cover periods (run 6). Start side and
+first heading are balanced four ways across runs, so no run is always
+right-first. The delivered dataset module also offers a decoy target (op 7)
+for runs 0, 1, 7 and 8; a host built from this source draws it grey, records it
+in `Sample.decoy`, and trains on the real target only. The shipped 2.1.4 client
+does not call op 7, so no decoy appears there. The trial counts and schema (2)
+are unchanged, so older recordings and models remain valid but only know the
+old paths. Each course takes roughly four minutes plus the acquisition/reaction periods.
 Scenario scheduling is reproducible; its frequency is a design assumption,
 not a measured distribution of APB gameplay.
 

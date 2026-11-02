@@ -4,5 +4,16 @@
     { "id": "verux.apb", "access": "paid", "purchase_url": "https://payhip.com/b/J3Omz", "directory": "VeruxAPB", "entropy": "veruxapb-license-ledger-v2" },
     { "id": "verux.launcher", "access": "free", "purchase_url": "", "directory": "", "entropy": "" }
   ],
-  "notices": []
+  "notices": [
+    {
+      "id": "apb-ml-aim-retrain-20261102",
+      "product_id": "verux.apb",
+      "title": "ML Aim: record and train again",
+      "text": "The ML Aim tracking course has changed. Its target paths are now varied and randomized, with sudden reversals and accelerations, longer pauses, targets that hide behind cover and reappear elsewhere, targets that jump between positions, and runs along the screen edges. The old course repeated smooth sine-wave paths, which taught models a narrow style of movement.
+
+What you need to do: open ML Aim, record a new Dataset for each coordinate source you use, then Train a new model from it. Models trained on older recordings still run, but they only know the old paths. Delete them once you are happy with the new one.
+
+Nothing else changes. The course is delivered automatically when you open Dataset."
+    }
+  ]
 }

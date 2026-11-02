@@ -46,6 +46,7 @@ struct Session {
     acquired_at: Option<f64>,
     acquired_target: [f64; 2],
     target: [f64; 2],
+    decoy: Option<[f64; 2]>,
     radius: f64,
     ready: bool,
 }
@@ -73,6 +74,7 @@ impl Session {
             acquired_at: None,
             acquired_target: [0.0; 2],
             target: [width * 0.5, height * 0.55],
+            decoy: None,
             radius: 20.0,
             ready: false,
         }
@@ -93,6 +95,13 @@ impl Session {
     }
     fn track_position(&mut self,elapsed:f64,scenario:usize)->Result<[f64;2],String> {
         Ok([self.runtime.call(1,scenario,self.data.source=="color",self.data.width,self.data.height,self.cursor,elapsed,0)?,self.runtime.call(1,scenario,self.data.source=="color",self.data.width,self.data.height,self.cursor,elapsed,1)?])
+    }
+
+    fn decoy_position(&mut self,elapsed:f64,scenario:usize)->Result<Option<[f64;2]>,String> {
+        let color=self.data.source=="color";
+        let (w,h,c)=(self.data.width,self.data.height,self.cursor);
+        if self.runtime.call(7,scenario,color,w,h,c,elapsed,2)?==0.0 || !self.visible {return Ok(None);}
+        Ok(Some([self.runtime.call(7,scenario,color,w,h,c,elapsed,0)?,self.runtime.call(7,scenario,color,w,h,c,elapsed,1)?]))
     }
 
     fn scenario_name(&self) -> &'static str {
@@ -149,6 +158,7 @@ impl Session {
                     displayed_target: Some(self.target),
                     visible: self.visible,
                     target_id: self.target_id,
+                    decoy: self.decoy,
                     raw_counts: self.raw_counts,
                 });
             }
@@ -319,6 +329,7 @@ pub fn run(id: String, source: String) -> Result<bool, String> {
                                 session.target_id=id;
                                 if scenario==3 { session.radius=session.runtime.call(6,scenario,false,session.data.width,session.data.height,session.cursor,t,0)?; }
                                 session.target = session.track_position(session.began.elapsed().as_secs_f64(), session.data.trials.len() - FLICK_TRIALS)?;
+                                session.decoy = session.decoy_position(session.began.elapsed().as_secs_f64(), session.data.trials.len() - FLICK_TRIALS)?;
                             }
                             if let Some(at)=session.acquired_at {
                                 if !session.tracking() {
@@ -331,7 +342,8 @@ pub fn run(id: String, source: String) -> Result<bool, String> {
                                 .flags(WindowFlags::NO_TITLE_BAR | WindowFlags::NO_MOVE | WindowFlags::NO_RESIZE | WindowFlags::NO_COLLAPSE | WindowFlags::NO_SCROLLBAR | WindowFlags::NO_SAVED_SETTINGS)
                                 .build(|| {
                                     ui.text(format!("{} course: {}",session.data.source,session.scenario_name()));
-                                    ui.text(if session.acquired_at.is_some() && !session.tracking() { "Keep following until the next target appears" } else if !session.ready { "Click the starting target to begin" } else if session.tracking() { if session.data.source == "memory" { "Follow horizontally; correct vertically only to enter the body band" } else { "Follow horizontally; keep your natural hand movement" } } else { "Click the targets as accurately as possible" });
+                                    ui.text(if session.acquired_at.is_some() && !session.tracking() { "Keep following until the next target appears" } else if !session.ready { "Click the starting target to begin" } else if session.tracking() { if session.data.source == "memory" { "Follow horizontally; correct vertically only to enter the body band" } else { "Follow the red target horizontally; ignore any grey one" } } else { "Click the targets as accurately as possible" });
+                                    if let Some(d)=session.decoy { ui.get_window_draw_list().add_circle([d[0] as f32,d[1] as f32], session.radius as f32, [0.55,0.55,0.60,1.0]).filled(true).build(); }
                                     if session.visible { ui.get_window_draw_list().add_circle([session.target[0] as f32, session.target[1] as f32], session.radius as f32, [0.95, 0.35, 0.30, 1.0]).filled(true).build();
                                     if session.data.source == "memory" && session.tracking() {
                                         ui.get_window_draw_list().add_rect([(session.target[0]-session.radius) as f32,(session.target[1]-session.radius*2.0) as f32],[(session.target[0]+session.radius) as f32,(session.target[1]+session.radius*2.0) as f32],[0.95,0.35,0.30,1.0]).build();

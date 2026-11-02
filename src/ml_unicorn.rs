@@ -31,6 +31,8 @@ pub struct Sample {
     pub visible: bool,
     #[serde(default)]
     pub target_id: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decoy: Option<[f64; 2]>,
 }
 
 fn visible_default() -> bool {
