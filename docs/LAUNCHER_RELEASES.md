@@ -1,6 +1,10 @@
 # Launcher release workflow
 
-## Current release (2026-11-02, later)
+## Current release (2026-11-02, latest)
+
+Catalog revision 105 publishes APB 2.1.5 (client 2.1.5) alongside launcher 0.3.1. It carries the ML Aim dataset-screen change (progress count only) and decoy-target support in the dataset recorder; the course itself was already live server-side. The MSI is `target/packages/apb-launcher-2.1.5/packages/verux.apb-2.1.5.msi`, SHA-256 `7ace94c4…`, ProductCode `{3EB59E17-02C7-454B-D4C5-B1BC16E22157}`; catalog source `target/packages/launcher-live-source-r105`. Driver payload, scripts and artwork are byte-identical to 2.1.4 except `DriverInstaller.exe`, which is recompiled from the same source. Installing or upgrading with this MSI was not qualified on a test PC before publication.
+
+## Earlier release (2026-11-02, later)
 
 Catalog revision 100 publishes launcher 0.3.1 (adds a "Do not show again" checkbox to notices; the choice is stored in `%LOCALAPPDATA%\Verux\Launcher\dismissed-notices.json`) alongside the unchanged APB 2.1.4. Launcher MSI `target/packages/launcher-live-source-r100/verux.launcher/packages/verux.launcher-0.3.1.msi`, SHA-256 `021ff5c9…ca17`, ProductCode `{F63F77E6-38EF-21D3-3FD6-597FB571A160}`. The prepared catalog passed the built launcher's `--verify-catalog`, and the live catalog reports revision 100 / launcher 0.3.1 / APB 2.1.4. Launcher install/upgrade from 0.3.0 was not exercised on a test PC before publication.
 
