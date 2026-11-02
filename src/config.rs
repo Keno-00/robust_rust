@@ -550,7 +550,7 @@ impl ProfileConfig {
         }
         if let Some(v) = map.get("memory_features") { cfg.memory_features = parse_bool(v); }
         if let Some(v) = map.get("hit_sound") { cfg.hit_sound = parse_bool(v); }
-        if let Some(v) = map.get("hit_sound_name") { cfg.hit_sound_name = v.clone(); }
+        if let Some(v) = map.get("hit_sound_name") { cfg.hit_sound_name = renamed_hit_sound(v).unwrap_or(v).into(); }
         if let Some(v) = map.get("coordinate_source") {
             cfg.coordinate_source = match v.as_str() {
                 "memory" | "Memory" => CoordinateSource::Memory,
@@ -1322,6 +1322,19 @@ impl IniFile {
         }
         out
     }
+}
+
+/// Hit sounds renamed in the supplied WAV directory; saved profiles keep working.
+fn renamed_hit_sound(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "[minecraft] XP gain.wav" => "minecraft_xp-gain.wav",
+        "[minecraft] bow ding.wav" => "minecraft_bow.wav",
+        "[minecraft] button.wav" => "minecraft_button.wav",
+        "[minecraft] egg throw.wav" => "minecraft_egg_throw.wav",
+        "[minecraft] hitsound.wav" => "minecraft_hit.wav",
+        "[minecraft] old hitsound.wav" => "minecraft_hit-old.wav",
+        _ => return None,
+    })
 }
 
 pub fn get_config_path() -> PathBuf {

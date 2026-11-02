@@ -1451,6 +1451,12 @@ pub fn heartbeat_usage_session(force: bool) -> Option<VerifyResponse> {
             }
             let mapped = map_server_response(status, response);
             if !mapped.valid {
+                crate::log_err!(
+                    "License heartbeat rejected: status={}, http_status={}, sequence={}",
+                    mapped.status,
+                    status,
+                    sequence
+                );
                 *session_guard = None;
             }
             Some(mapped)

@@ -100,6 +100,7 @@ pub struct JadeSurvey {
     changed_this_survey: HashSet<EncodedAddress>,
     stable_this_survey: HashSet<EncodedAddress>,
     changed_captures: HashMap<EncodedAddress, u8>,
+    last_unmatched: usize,
     pub scanned_levels: usize,
     pub total_levels: usize,
 }
@@ -115,6 +116,7 @@ impl JadeSurvey {
             changed_this_survey: HashSet::new(),
             stable_this_survey: HashSet::new(),
             changed_captures: HashMap::new(),
+            last_unmatched: 0,
             scanned_levels: 0,
             total_levels: 0,
         })
@@ -265,7 +267,7 @@ impl JadeSurvey {
     }
 
     fn active_green_props(
-        &self,
+        &mut self,
         reader: &AtlasReader,
         world: PawnRef,
         persistent: u64,
@@ -391,11 +393,13 @@ impl JadeSurvey {
                 None => unmatched += 1,
             }
         }
-        if unmatched != 0 {
+        // Logged on change only; the survey repeats several times per second.
+        if unmatched != 0 && unmatched != self.last_unmatched {
             crate::log_info!(
                 "Withheld {unmatched} pumpkin locations without a unique current prop association."
             );
         }
+        self.last_unmatched = unmatched;
         Ok(eligible)
     }
 

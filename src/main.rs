@@ -118,6 +118,7 @@ extern "system" {
 }
 
 fn main() {
+    robust_rust::logger::install_panic_hook();
     feature_catalog::retain();
     // --- Restore original user's LOCALAPPDATA before anything else ---
     // When relaunched as Admin via "runas", LOCALAPPDATA points to the

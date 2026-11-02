@@ -54,7 +54,49 @@ fn rotate_logs(log_path: &std::path::Path) {
     let _ = fs::rename(log_path, log_path.with_extension("log.1"));
 }
 
+// Serializes rotation and appends across threads; each line is a single write
+// so other Verux processes appending to the same file cannot split it.
+static LOG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn log_message(level: &str, msg: &str) {
+    let _guard = LOG_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    write_line(level, msg);
+}
+
+/// Records panics before `panic = "abort"` terminates the process.
+pub fn install_panic_hook() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = info
+            .location()
+            .map_or_else(|| "unknown".to_string(), |l| format!("{}:{}", l.file(), l.line()));
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "non-string payload".to_string());
+        let thread = std::thread::current();
+        let message = format!(
+            "Panic in thread '{}' at {}: {}",
+            thread.name().unwrap_or("unnamed"),
+            location,
+            payload
+        );
+        // A panic inside log_message would already hold LOG_LOCK; never wait on it here.
+        match LOG_LOCK.try_lock() {
+            Ok(_guard) => write_line("PANIC", &message),
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                let _guard = poisoned.into_inner();
+                write_line("PANIC", &message);
+            }
+            Err(std::sync::TryLockError::WouldBlock) => write_line("PANIC", &message),
+        }
+        previous(info);
+    }));
+}
+
+fn write_line(level: &str, msg: &str) {
     let home = std::env::var("USERPROFILE").unwrap_or_default();
     let log_path = PathBuf::from(home)
         .join("Documents")
@@ -83,7 +125,8 @@ pub fn log_message(level: &str, msg: &str) {
             } else {
                 "00:00:00".to_string()
             };
-        let _ = writeln!(file, "[{}] [{}] {}", time_str, level, safe_message);
+        let line = format!("[{}] [{}] {}\n", time_str, level, safe_message);
+        let _ = file.write_all(line.as_bytes());
     }
 }
 

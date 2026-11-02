@@ -530,7 +530,9 @@ async function activate(request: Request, env: Env, ctx: ExecutionContext, libra
     await audit(env, request, product.id, "activation_wrong_product");
     return json({ valid: false, status: "wrong_product", message: "This license is not valid for the requested product." }, 403);
   }
-  await settleSessions(env.LICENSE_DB, product.id, licenseHash, now);
+  // A launcher library check creates no session, so it must not revoke the
+  // product's live session; it settles only sessions that already expired.
+  await settleSessions(env.LICENSE_DB, product.id, licenseHash, now, library);
   const purchasedAt = existing ? Number(existing.purchased_at) : now;
   await env.LICENSE_DB.prepare(`
     INSERT INTO licenses (product_id, license_hash, payhip_license_id, tier, purchased_at, entitlement_seconds, used_seconds, status,
@@ -565,6 +567,7 @@ async function activate(request: Request, env: Env, ctx: ExecutionContext, libra
     const policy = (await libraryConfig(env)).products.find(p => p.id === product.id);
     if (!policy || policy.access !== "paid") throw new Error("Paid library product not configured");
     await env.LICENSE_DB.prepare("DELETE FROM launcher_license_expiry WHERE product_id=? AND license_hash=?").bind(product.id,licenseHash).run();
+    await audit(env, request, product.id, "library_verified", licenseHash, installHash);
     return json({valid:true,status:"valid",message:"VERIFIED",download_token:await downloadGrant(env,product.id,licenseHash)});
   }
 
