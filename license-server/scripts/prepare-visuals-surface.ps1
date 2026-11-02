@@ -1,7 +1,8 @@
 param([ValidateSet('verux.apb','verux.apb.cb')][string]$Product = 'verux.apb')
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'VeruxSecrets.ps1')
 Add-Type -AssemblyName System.Security
-$privateRoot = Join-Path $env:LOCALAPPDATA 'VeruxServerSecurity\surface-labels'
+$privateRoot = Join-Path (Get-VeruxSecretsRoot) 'VeruxServerSecurity\surface-labels'
 if ($Product -eq 'verux.apb.cb') { $privateRoot = Join-Path $privateRoot $Product }
 $sourcePath = Join-Path $privateRoot $(if ($Product -eq 'verux.apb') { 'catalog.hitsound.dpapi' } else { 'catalog.eligibility.dpapi' })
 $targetPath = Join-Path $privateRoot 'catalog.visuals.dpapi'

@@ -1,7 +1,8 @@
 param([switch]$Upload)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'VeruxSecrets.ps1')
 Add-Type -AssemblyName System.Security
-$keyDirectory = Join-Path $env:LOCALAPPDATA 'VeruxServerSecurity'
+$keyDirectory = Join-Path (Get-VeruxSecretsRoot) 'VeruxServerSecurity'
 $keyPath = Join-Path $keyDirectory 'verux-20261003.pkcs8.dpapi'
 $publicPath = Join-Path $PSScriptRoot '../security/public-keys.json'
 if (-not (Test-Path -LiteralPath $keyPath)) {

@@ -191,7 +191,7 @@ Thumbnail and banner inputs are optional at the package-building stage so binary
 
 A real APB 2.1.0 candidate was built from target/v3-release/release/verux_apb.exe and the drayebr/build-crypto driver matching the selected script. It is under target/packages/apb-launcher-2.1.0-r5. It has not been installed or published, and its artwork remains deliberately unset. Failed draft build directories were retained as diagnostics.
 
-The new dedicated release key is stored privately under the current user's LocalAppData/Verux/ReleasePublisher directory. Its public companion is used by the launcher Build.ps1. Back up the private file securely; it is not copied into either repository or the Worker.
+The release key is in the operator secrets folder (`Desktop\deploy\Verux Secrets\Verux\ReleasePublisher`); see docs/OPERATOR_SECRETS.md. It was originally written from inside the Codex app, whose sandbox redirected LocalAppData and hid it from other tools. Its public companion is used by the launcher Build.ps1. It is not copied into either repository; the renewal Worker holds a write-only copy.
 
 ## Current implementation record — 2026-10-19
 

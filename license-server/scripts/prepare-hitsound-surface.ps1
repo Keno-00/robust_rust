@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'VeruxSecrets.ps1')
 Add-Type -AssemblyName System.Security
-$privateRoot = Join-Path $env:LOCALAPPDATA 'VeruxServerSecurity\surface-labels'
+$privateRoot = Join-Path (Get-VeruxSecretsRoot) 'VeruxServerSecurity\surface-labels'
 $sourcePath = Join-Path $privateRoot 'catalog.eligibility.dpapi'
 $targetPath = Join-Path $privateRoot 'catalog.hitsound.dpapi'
 $bytes = [Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($sourcePath), $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)

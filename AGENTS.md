@@ -18,6 +18,14 @@
 - Keep significant changes reviewable through focused modules, explicit product constants, migrations, documentation, and reproducible validation commands.
 - Report validation failures directly. Do not hide them by switching implementations or weakening checks.
 
+## Secrets and operator transparency
+
+- Keys, credentials, signing material and private backups live only in the operator secrets folder, `C:\Users\Admin\Desktop\deploy\Verux Secrets` (resolved by `license-server/scripts/VeruxSecrets.ps1`). Never write them to `%LOCALAPPDATA%`, `%APPDATA%`, temp folders, or anywhere an app sandbox can redirect.
+- Before creating, rotating, moving, uploading or deleting any secret, stop and ask the user. Afterward, update `docs/OPERATOR_SECRETS.md` in the same change.
+- Anything that customers depend on or that is hard to undo needs the user's explicit go-ahead first, and a plain-language report afterward: deployments, migrations, catalog or release publication, trust anchors and pinned keys, scheduled jobs and Workers. Never leave it only in a doc.
+- If an operation needs a secret you cannot find, stop and ask. Do not generate a replacement.
+- Commit work that produced something shipped or deployed before ending the session, so the repository matches what users run.
+
 ## Testing
 
 - Do not add new automated tests, test files, fixtures, or test-only dependencies unless the user explicitly requests them.

@@ -12,7 +12,7 @@ COM10 enumerated as Arduino Leonardo, USB VID 2341 / PID 8036. A 1200-baud bootl
 
 Readback used avr109, ATmega32U4, 57600 baud, `-n -D -U flash:r:<private-backup>:i`. No erase, flash write, EEPROM write, fuse write, or lock-bit write was requested. avrdude reported device signature 0x1e9587. The Intel HEX output was checked for record lengths and checksums; it represents 32,730 flash bytes, including a nonblank application and bootloader region. Application strings include Arduino Leonardo and shoot. These observations do not establish the entire firmware protocol or reconstruct its source.
 
-The private backup resides outside source control under `%LOCALAPPDATA%/VeruxFirmwareBackups/20261004`. Keep the complete readback as recovery evidence, not an approved customer firmware artifact. Do not redistribute or flash it until the application region, bootloader boundary, licensing/provenance, and behavior are qualified. Compiled machine code does not contain the original sketch, comments, or original variable names.
+The private backup resides outside source control under `Verux Secrets\VeruxFirmwareBackups/20261004`. Keep the complete readback as recovery evidence, not an approved customer firmware artifact. Do not redistribute or flash it until the application region, bootloader boundary, licensing/provenance, and behavior are qualified. Compiled machine code does not contain the original sketch, comments, or original variable names.
 
 ## Setup tool behavior
 

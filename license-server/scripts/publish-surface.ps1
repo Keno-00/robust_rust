@@ -4,10 +4,11 @@ param(
     [ValidateSet('surface','surface.objects','surface.eligibility','surface.hitsound','surface.visuals')][string]$Catalog = 'surface'
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'VeruxSecrets.ps1')
 if ($Product -eq 'verux.apb.cb' -and $Catalog -notin @('surface.eligibility','surface.visuals')) { throw 'Color supports only its enrolled eligibility and visuals catalogs.' }
 Add-Type -AssemblyName System.Security
 $serverRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$privateRoot = Join-Path $env:LOCALAPPDATA 'VeruxServerSecurity\surface-labels'
+$privateRoot = Join-Path (Get-VeruxSecretsRoot) 'VeruxServerSecurity\surface-labels'
 if ($Product -eq 'verux.apb.cb') { $privateRoot = Join-Path $privateRoot 'verux.apb.cb' }
 $catalogPath = Join-Path $privateRoot $(switch ($Catalog) { 'surface.visuals' { 'catalog.visuals.dpapi' } 'surface.hitsound' { 'catalog.hitsound.dpapi' } 'surface.objects' { 'catalog.objects.dpapi' } 'surface.eligibility' { 'catalog.eligibility.dpapi' } default { 'catalog.dpapi' } })
 $keyPath = Join-Path $privateRoot 'surface-key.dpapi'

@@ -1,9 +1,10 @@
 param([switch]$Upload)
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'VeruxSecrets.ps1')
 $serverRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $configPath=Join-Path $serverRoot 'wrangler.toml'
 $config=[IO.File]::ReadAllText($configPath)
-$privateRoot=Join-Path $env:LOCALAPPDATA 'VeruxServerSecurity/color-artifacts'
+$privateRoot=Join-Path (Get-VeruxSecretsRoot) 'VeruxServerSecurity/color-artifacts'
 [void][IO.Directory]::CreateDirectory($privateRoot)
 $artifacts=@()
 foreach ($name in @('smoothing')) {

@@ -60,7 +60,7 @@ No new automated tests, test files, fixtures, or test-only dependencies were add
 
 User explicitly authorized deployment and signed into the existing server-owner Cloudflare account. The initial authorization error was resolved by that login; no alternate server/account was created. Cloudflare required R2 activation, which the user completed in the dashboard. Wrangler is now pinned to the correct existing account in project configuration.
 
-- Exported a pre-migration D1 backup outside the repo under `%LOCALAPPDATA%/VeruxServerSecurity/backups/20261003-192318/passport-db-before-v2.sql`. Backup contents were not included in source/docs.
+- Exported a pre-migration D1 backup outside the repo under `Verux Secrets\VeruxServerSecurity/backups/20261003-192318/passport-db-before-v2.sql`. Backup contents were not included in source/docs.
 - Confirmed the prior deployed APB/Songmaker product identities, minimum versions, and existing secret names; retained them.
 - Uploaded `SERVER_SIGNING_KEY_PKCS8` using the existing protected local signing key. No secret value was printed by the upload script.
 - Created `verux-algorithm-artifacts`; confirmed r2.dev public access is disabled and no custom domains are attached. Uploaded the 1958-byte immutable smoothing artifact matching the configured SHA-256.

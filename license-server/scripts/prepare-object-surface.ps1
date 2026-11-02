@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'VeruxSecrets.ps1')
 Add-Type -AssemblyName System.Security
-$privateRoot = Join-Path $env:LOCALAPPDATA 'VeruxServerSecurity\surface-labels'
+$privateRoot = Join-Path (Get-VeruxSecretsRoot) 'VeruxServerSecurity\surface-labels'
 $originalPath = Join-Path $privateRoot 'catalog.dpapi'
 $objectsPath = Join-Path $privateRoot 'catalog.objects.dpapi'
 $keyPath = Join-Path $privateRoot 'surface-key.dpapi'

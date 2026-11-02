@@ -4,11 +4,13 @@ param(
     [Parameter(Mandatory)][string]$CredentialsFile,
     [string]$RenewInto,
     [switch]$Library,
-    [string]$PrivateKeyFile=(Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Verux/ReleasePublisher/release-ed25519.pem'),
+    [string]$PrivateKeyFile,
     [ValidatePattern('^[a-f0-9]{32}$')][string]$AccountId='8b35956ff018a988ed0a6c84df4f4807',
     [string]$Bucket='verux-release-artifacts'
 )
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'VeruxSecrets.ps1')
+if(-not $PrivateKeyFile){$PrivateKeyFile=Join-Path (Get-VeruxSecretsRoot) 'Verux\ReleasePublisher\release-ed25519.pem'}
 $raw=Get-Content -Raw -LiteralPath $CredentialsFile
 $access=[regex]::Match($raw,'(?im)Access\s+Key\s+ID\s*[:=]?\s*\r?\n?\s*([a-f0-9]{32})')
 $secret=[regex]::Match($raw,'(?im)Secret\s+Access\s+Key\s*[:=]?\s*\r?\n?\s*([a-f0-9]{64})')

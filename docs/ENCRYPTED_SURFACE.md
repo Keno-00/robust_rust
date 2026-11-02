@@ -92,7 +92,7 @@ The vault requires this Windows account and the updated application. Keep a
 protected recovery copy before moving Windows accounts or reinstalling.
 The local existing profile was migrated after isolated qualification, and its
 settings were compared before/after. Its original bytes are preserved in
-`%LOCALAPPDATA%\VeruxServerSecurity\surface-labels\profile-before-migration.dpapi`.
+`Verux Secrets\VeruxServerSecurity\surface-labels\profile-before-migration.dpapi`.
 Saved license keys retain the existing DPAPI implementation. Cryptography API
 output buffers are cleared before release.
 
@@ -104,8 +104,8 @@ The tool still writes the same game INI/shader assets.
 
 The original display catalog and AES key are protected outside this repository:
 
-- `%LOCALAPPDATA%\VeruxServerSecurity\surface-labels\catalog.dpapi`
-- `%LOCALAPPDATA%\VeruxServerSecurity\surface-labels\surface-key.dpapi`
+- `Verux Secrets\VeruxServerSecurity\surface-labels\catalog.dpapi`
+- `Verux Secrets\VeruxServerSecurity\surface-labels\surface-key.dpapi`
 
 Back up both through a protected recovery process. Missing catalog data fails
 publishing; it is never reconstructed from embedded client strings. Label edits

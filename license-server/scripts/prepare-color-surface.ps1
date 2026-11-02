@@ -1,7 +1,8 @@
 param([switch]$InitializeKey)
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'VeruxSecrets.ps1')
 Add-Type -AssemblyName System.Security
-$surfaceRoot=Join-Path $env:LOCALAPPDATA 'VeruxServerSecurity/surface-labels'
+$surfaceRoot=Join-Path (Get-VeruxSecretsRoot) 'VeruxServerSecurity/surface-labels'
 $colorRoot=Join-Path $surfaceRoot 'verux.apb.cb'
 [void][IO.Directory]::CreateDirectory($colorRoot)
 $source=Join-Path $surfaceRoot 'catalog.eligibility.dpapi'
