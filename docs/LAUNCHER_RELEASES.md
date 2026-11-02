@@ -1,6 +1,10 @@
 # Launcher release workflow
 
-## Current release (2026-11-02, launcher 0.3.2)
+## Current release (2026-11-02, APB 2.1.7)
+
+Catalog revision 115 publishes APB 2.1.7 alongside launcher 0.3.2 (published separately as revision 111). 2.1.7 keeps only the newest complete ML Aim recording per source: saving a dataset deletes older recordings of the same source, so training data no longer accumulates past its 32 MiB limit (four memory recordings were 41.5 MiB). Recordings already stored remain until the user records again. The MSI is `target/packages/apb-launcher-2.1.7/packages/verux.apb-2.1.7.msi`, SHA-256 `3c9ad535…`; catalog source `target/packages/launcher-live-source-r115`, built from the revision 111 source. A first attempt on revision 110's source was refused by the publisher's downgrade check because launcher 0.3.2 was already live; nothing was overwritten. Driver payload is byte-identical to 2.1.4 except the recompiled `DriverInstaller.exe`. Installing or upgrading with this MSI was not qualified on a test PC before publication.
+
+## Earlier release (2026-11-02, launcher 0.3.2)
 
 Catalog revision 111 publishes launcher 0.3.2 alongside the unchanged APB 2.1.6. Before any driver install, repair or update the launcher checks Secure Boot and test signing. With Secure Boot on it shows the manual steps (User Guide and Setup.pdf, 3.1) and stops. With test signing off it asks for confirmation, runs `bcdedit /set testsigning on` through a UAC prompt, and offers a restart. It never changes Secure Boot. Launcher MSI `target/packages/launcher-0.3.2/packages/verux.launcher-0.3.2.msi`, SHA-256 `fb0c7c6b…eaf`, ProductCode `{3DDB55FF-5FB2-5F90-48CC-E5B556AE36C2}`; catalog source `target/packages/launcher-live-source-r111`. The prepared catalog passed the built launcher's `--verify-catalog`, and the live catalog reports revision 111 / launcher 0.3.2 / APB 2.1.6. A first revision 106 was prepared against stale APB 2.1.5 (live was already 110), rejected by the publisher and deleted. The APB MSI was not rebuilt, so its `DriverInstaller.exe` backstop check is not in any published package yet. Launcher install/upgrade from 0.3.1 and the UAC/restart flow were not qualified on a test PC before publication.
 
