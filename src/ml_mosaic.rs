@@ -104,38 +104,6 @@ impl Session {
         Ok(Some([self.runtime.call(7,scenario,color,w,h,c,elapsed,0)?,self.runtime.call(7,scenario,color,w,h,c,elapsed,1)?]))
     }
 
-    fn scenario_name(&self) -> &'static str {
-        if !self.tracking() {
-            return "Directional acquisition";
-        }
-        if self.data.source == "color" {
-            return [
-                "Sustained horizontal follow",
-                "Horizontal reversals",
-                "Horizontal speed changes",
-                "Approach (simulated)",
-                "Slow horizontal follow",
-                "Fast horizontal follow",
-                "Brief loss and reacquisition",
-                "Target switches",
-                "Moving acquisition",
-                "Horizontal stop/start",
-            ][self.data.trials.len() - FLICK_TRIALS];
-        }
-        [
-            "Sustained follow",
-            "Reversals",
-            "Speed changes",
-            "Approach (simulated)",
-            "Jump (measured timing; simulated screen amplitude)",
-            "Fall (simulated)",
-            "Brief loss and reacquisition",
-            "Target switches",
-            "Moving acquisition",
-            "Elevation changes",
-        ][self.data.trials.len() - FLICK_TRIALS]
-    }
-
     fn record(&mut self) -> Result<(),String> {
         if let Some(trial) = &mut self.current {
             let t = if trial.tracking {
@@ -341,8 +309,7 @@ pub fn run(id: String, source: String) -> Result<bool, String> {
                                 .position([0.0, 0.0], Condition::Always).size(ui.io().display_size, Condition::Always)
                                 .flags(WindowFlags::NO_TITLE_BAR | WindowFlags::NO_MOVE | WindowFlags::NO_RESIZE | WindowFlags::NO_COLLAPSE | WindowFlags::NO_SCROLLBAR | WindowFlags::NO_SAVED_SETTINGS)
                                 .build(|| {
-                                    ui.text(format!("{} course: {}",session.data.source,session.scenario_name()));
-                                    ui.text(if session.acquired_at.is_some() && !session.tracking() { "Keep following until the next target appears" } else if !session.ready { "Click the starting target to begin" } else if session.tracking() { if session.data.source == "memory" { "Follow horizontally; correct vertically only to enter the body band" } else { "Follow the red target horizontally; ignore any grey one" } } else { "Click the targets as accurately as possible" });
+                                    ui.text(format!("{}/{}",(session.data.trials.len()+1).min(FLICK_TRIALS+TRACK_TRIALS),FLICK_TRIALS+TRACK_TRIALS));
                                     if let Some(d)=session.decoy { ui.get_window_draw_list().add_circle([d[0] as f32,d[1] as f32], session.radius as f32, [0.55,0.55,0.60,1.0]).filled(true).build(); }
                                     if session.visible { ui.get_window_draw_list().add_circle([session.target[0] as f32, session.target[1] as f32], session.radius as f32, [0.95, 0.35, 0.30, 1.0]).filled(true).build();
                                     if session.data.source == "memory" && session.tracking() {
