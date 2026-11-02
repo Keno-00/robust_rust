@@ -1,6 +1,10 @@
 # Launcher release workflow
 
-## Current release (2026-11-02, latest)
+## Current release (2026-11-02, final)
+
+Catalog revision 110 publishes APB 2.1.6 alongside launcher 0.3.1. 2.1.6 raises the inference initialization fuel from 200 million to 2 billion (initialization costs about 45 fuel per model byte; models trained on three or more courses failed Preview and Start with "Inference model initialization exceeded its limits"). The same day the ML Aim dataset module was replaced again to fix a one-sided flick course (every acquisition target landed right of centre because post-click drift was always rightward); dataset digests full `c85cba40…8e19`, color `97fbc772…d979`, Worker version `6bde47e2`. The MSI is `target/packages/apb-launcher-2.1.6/packages/verux.apb-2.1.6.msi`, SHA-256 `903bd26a…`; catalog source `target/packages/launcher-live-source-r110`. Driver payload is byte-identical to 2.1.4 except the recompiled `DriverInstaller.exe`. Installing or upgrading with this MSI was not qualified on a test PC before publication.
+
+## Earlier release (2026-11-02, latest)
 
 Catalog revision 105 publishes APB 2.1.5 (client 2.1.5) alongside launcher 0.3.1. It carries the ML Aim dataset-screen change (progress count only) and decoy-target support in the dataset recorder; the course itself was already live server-side. The MSI is `target/packages/apb-launcher-2.1.5/packages/verux.apb-2.1.5.msi`, SHA-256 `7ace94c4…`, ProductCode `{3EB59E17-02C7-454B-D4C5-B1BC16E22157}`; catalog source `target/packages/launcher-live-source-r105`. Driver payload, scripts and artwork are byte-identical to 2.1.4 except `DriverInstaller.exe`, which is recompiled from the same source. Installing or upgrading with this MSI was not qualified on a test PC before publication.
 
