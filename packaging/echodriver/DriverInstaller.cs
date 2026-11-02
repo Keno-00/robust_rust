@@ -186,6 +186,47 @@ internal static class DriverInstaller {
             if (file != IntPtr.Zero) Marshal.FreeHGlobal(file); Marshal.FreeCoTaskMem(name);
         }
     }
+    private const string SecureBootOnText =
+        "Secure Boot is on. Before loading the kernel driver, you must disable Secure Boot.\n" +
+        "1. Restart your computer and enter its BIOS/UEFI settings. The key varies by manufacturer, but is commonly Delete, F2, or Esc.\n" +
+        "2. Locate Secure Boot, usually under the Boot or Security tab.\n" +
+        "3. Set it to Disabled.\n" +
+        "4. Save your changes and restart into Windows.\n" +
+        "If BitLocker or Device Encryption is enabled, have your recovery key available before changing these settings.\n" +
+        "Then run the installer again. See User Guide and Setup.pdf, section 3.1.";
+    private const string TestSigningOffText =
+        "Driver test signing is off. Enable it, then restart your computer and run the installer again.\n" +
+        "Windows may display a Test Mode watermark on the desktop after restarting. See User Guide and Setup.pdf, section 3.2.";
+    [DllImport("ntdll.dll")] private static extern int NtQuerySystemInformation(int information, ref CodeIntegrity data, int size, out int returned);
+    [StructLayout(LayoutKind.Sequential)] private struct CodeIntegrity { public int size; public int options; }
+    private static bool SecureBootEnabled() {
+        using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\SecureBoot\State")) {
+            object value = key == null ? null : key.GetValue("UEFISecureBootEnabled", null);
+            return value is int && (int)value == 1;
+        }
+    }
+    private static bool TestSigningActive() {
+        CodeIntegrity data = new CodeIntegrity { size = Marshal.SizeOf(typeof(CodeIntegrity)) }; int returned;
+        int status = NtQuerySystemInformation(103, ref data, data.size, out returned);
+        if (status != 0) throw new InvalidOperationException("Cannot read the driver test signing state (0x" + status.ToString("X8") + ").");
+        return (data.options & 0x2) != 0;
+    }
+    private static void RequireBootReady() {
+        if (SecureBootEnabled()) throw new InvalidOperationException(SecureBootOnText);
+        if (!TestSigningActive()) throw new InvalidOperationException(TestSigningOffText);
+    }
+    private static void EnableTestSigning() {
+        if (SecureBootEnabled()) throw new InvalidOperationException(SecureBootOnText);
+        if (TestSigningActive()) { Log("Driver test signing is already on."); return; }
+        ProcessStartInfo info = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "bcdedit.exe"), "/set testsigning on");
+        info.UseShellExecute = false; info.CreateNoWindow = true; info.RedirectStandardOutput = true; info.RedirectStandardError = true;
+        using (Process process = Process.Start(info)) {
+            var error = process.StandardError.ReadToEndAsync(); string output = process.StandardOutput.ReadToEnd(); process.WaitForExit();
+            Log(output.Trim()); string diagnostic = error.GetAwaiter().GetResult().Trim(); if (diagnostic.Length != 0) Log(diagnostic);
+            if (process.ExitCode != 0) throw new InvalidOperationException("bcdedit could not enable test signing (" + process.ExitCode + ").");
+        }
+        Log("Driver test signing is on. Restart your computer, then run the installer again. Windows may display a Test Mode watermark on the desktop after restarting.");
+    }
     private static void SaveJournal(string raw, bool running, bool uninstall) {
         SecureJournalDirectory();
         Journal record = new Journal { path = raw, file = DriverFile(raw), running = running, uninstall = uninstall };
@@ -207,6 +248,7 @@ internal static class DriverInstaller {
         Log("REPLACING " + contract.service + ": " + raw);
     }
     private static void Install(bool replace, bool wasRunning) {
+        RequireBootReady();
         if (File.Exists(journalPath)) {
             TrustedDirectory(root); Ordinary(journalPath);
             Journal pending = Json.Deserialize<Journal>(File.ReadAllText(journalPath));
@@ -291,9 +333,21 @@ internal static class DriverInstaller {
     }
     public static int Main(string[] args) {
         try {
-            if (args.Length < 2 || args.Length > 4 || !new[] { "Install", "Uninstall", "RemoveNew", "Rollback", "Commit", "RestoreUninstall", "CommitUninstall", "Inspect" }.Contains(args[0]) || args.Skip(2).Any(a => a != "0" && a != "1")) throw new InvalidOperationException("Invalid driver installer arguments.");
+            if (args.Length < 2 || args.Length > 4 || !new[] { "Install", "Uninstall", "RemoveNew", "Rollback", "Commit", "RestoreUninstall", "CommitUninstall", "Inspect", "Preflight", "EnableTestSigning" }.Contains(args[0]) || args.Skip(2).Any(a => a != "0" && a != "1")) throw new InvalidOperationException("Invalid driver installer arguments.");
+            if (args[0] == "Preflight") {
+                if (SecureBootEnabled()) { Console.WriteLine(SecureBootOnText); return 10; }
+                if (!TestSigningActive()) { Console.WriteLine(TestSigningOffText); return 11; }
+                Console.WriteLine("Secure Boot is off and driver test signing is on."); return 0;
+            }
             source = Path.GetFullPath(args[1]); Ordinary(source);
             root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), @"VeruxAPB\Migration"); journalPath = Path.Combine(root, "EchoDriver.json");
+            if (args[0] == "EnableTestSigning") {
+                using (WindowsIdentity identity = WindowsIdentity.GetCurrent()) if (!new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator)) throw new InvalidOperationException("Administrator privileges required.");
+                string logParent = Path.GetDirectoryName(root); ApplicationDirectory(logParent);
+                string logFolder = Path.Combine(logParent, "Logs"); ApplicationDirectory(logFolder);
+                logPath = Path.Combine(logFolder, "EchoDriver-migration.log"); Ordinary(logPath); Log("EnableTestSigning requested");
+                EnableTestSigning(); Log("EnableTestSigning completed"); return 0;
+            }
             bool uninstallCompletion = args[0] == "RestoreUninstall" || args[0] == "CommitUninstall";
             if (uninstallCompletion && !File.Exists(journalPath)) return 0;
             if (uninstallCompletion) TrustedDirectory(root);

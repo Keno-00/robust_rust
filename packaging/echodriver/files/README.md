@@ -1,33 +1,61 @@
-# EchoDriver setup
+# EchoDriver Setup
 
-Launcher MSI packages use the compiled `DriverInstaller.cs` helper embedded in the MSI Binary table. Install, rollback, uninstall and commit do not invoke PowerShell files. The manual scripts below remain available for the existing standalone flow. The compiled helper preserves the same pinned driver/certificate hashes, certificate identity/validity/trust checks, service ownership and protected transport-key rules; it changes no execution policy, Secure Boot or test-signing setting.
+This is for External Memory reading in APB. If this is too intrusive for you, you may choose Computer Vision in Aimbot Source and Triggerbot Source instead.
 
-Launcher migration logs are under `C:\ProgramData\VeruxAPB\Logs\EchoDriver-migration.log`. Migration keeps original files and records the service path/hash/running state in a SYSTEM/Administrators-only journal. Uninstall rollback uses a machine-DPAPI-protected transport-key snapshot in that same protected transaction directory; successful uninstall commit removes the snapshot. Key material is never logged.
+## Requirements
 
-Requires 64-bit Windows, Secure Boot disabled, and test-signing enabled followed by a restart. This package uses a public development test certificate, not Microsoft production signing.
+- 64-bit Windows
+- Secure Boot Off
+- Driver Test Signing
 
-Double-click **Install.cmd** and approve the Windows administrator prompt. Wait for the installation confirmation, then close the setup window.
+## 1. Disable Secure Boot
 
-Then open VERUX.APB, select Memory, and click **Start EchoDriver** to verify the interface. Keep the installation at its permanent location. If setup fails, read the displayed error and `C:\ProgramData\VeruxAPB\Logs\EchoDriver-setup.log`. Do not disable additional Windows protections to suppress errors. If PowerShell policy blocks the script, report that policy error.
+Before loading the kernel driver, you must disable Secure Boot.
 
-To upgrade from 2.0, close VERUX.APB, run **Uninstall.cmd** from this folder, then run **Install.cmd**. Uninstall targets the shared installed EchoDriver, including 2.0; it does not delete the old application folder. If Windows reports the service is marked for deletion, restart Windows before installing.
+1. Restart your computer and enter its BIOS/UEFI settings. The key varies by manufacturer, but is commonly Delete, F2, or Esc.
+2. Locate Secure Boot, usually under the Boot or Security tab.
+3. Set it to Disabled.
+4. Save your changes and restart into Windows.
 
-Install provisions a per-machine v3 transport key with SYSTEM/Administrators-only access and preserves an existing valid key.
+If BitLocker or Device Encryption is enabled, have your recovery key available before changing these settings.
 
-To uninstall, close VERUX.APB, double-click **Uninstall.cmd**, and approve the Windows administrator prompt.
+## 2. Enable Driver Test Signing
 
-Uninstall removes only this package's service and driver file. The test certificate remains because other development drivers may share it. Test-signing and Secure Boot settings remain unchanged.
+Once Secure Boot is disabled, enable Windows test-signing mode.
 
-## Manual section 3.3
+1. Open Command Prompt as Administrator.
+2. Enter the following command:
 
-1. Open the provided **EchoDriver** folder.
-2. Double-click **Install.cmd**.
-3. Approve the administrator prompt and wait for installation to complete.
-4. Open **verux.apb.exe**, go to **Memory**, and click **Start EchoDriver**.
-5. Confirm that the driver passes verification.
+```
+bcdedit /set testsigning on
+```
+
+3. After the command completes successfully, restart your computer.
+
+Windows may display a Test Mode watermark on the desktop after restarting. Test-signing mode allows appropriately test-signed drivers to load. For our case, this allows EchoDriver to be installed.
+
+## 3. Install the Kernel Driver
+
+With the Verux launcher, install VERUX.APB and the launcher installs EchoDriver.
+
+Without it, double-click **Install.cmd** and approve the administrator prompt. Wait for the installation message.
+
+## 4. Start EchoDriver
+
+1. Open **verux.apb.exe** and go to the Memory section.
+2. Select Start EchoDriver.
+3. Wait for EchoDriver to say Ready.
+
+If setup fails, read the displayed error and `C:\ProgramData\VeruxAPB\Logs\EchoDriver-setup.log` (standalone) or `EchoDriver-migration.log` (launcher).
+
+## Upgrade and Uninstall
+
+To upgrade from 2.0, close VERUX.APB, run **Uninstall.cmd** from this folder, then run **Install.cmd**. If Windows reports the service is marked for deletion, restart Windows before installing.
+
+To uninstall, close VERUX.APB, double-click **Uninstall.cmd**, and approve the administrator prompt. The test certificate, Secure Boot and test-signing settings remain unchanged.
 
 ## Release validation
 
 Package source: `drayebr/build-crypto/EchoDriver.sys` and matching `EchoDriver.cer`. Only the public certificate is distributed. Setup pins both SHA-256 digests and the signer thumbprint. Renewing or changing the artifacts requires explicitly updating the pins.
 
-Syntax and packaged hashes/signature can be checked without running setup. Installation, fresh-machine trust, kernel loading, application verification and uninstall still require qualification on a supported Windows machine. Existing development services at other paths are rejected; setup never silently replaces them or restores another driver.
+Installation, fresh-machine trust, kernel loading, application verification and uninstall still require qualification on a supported Windows machine. Existing development services at other paths are rejected; setup never silently replaces them or restores another driver.

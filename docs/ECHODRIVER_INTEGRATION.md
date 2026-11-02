@@ -18,37 +18,19 @@ There is no v2, obfuscation or plaintext fallback. See
 [encrypted transport](ECHO_ENCRYPTED_TRANSPORT.md) for key provisioning, session
 lifecycle, build/loading commands and validation limitations.
 
-## Current driver assessment (2026-09-30)
+## Installation
 
-The local `..\drayebr` KMDF driver accepts read-only process-memory requests of
-1â€“4096 bytes, rejects invalid ranges, and returns exact bytes or an error. Its
-device SDDL permits SYSTEM and Administrators. The separate echo ReadFile and
-WriteFile endpoints only access the driver's own RAM buffer. APB cursor reads
-were checked through EchoDriver after game restarts and matched the player's
-white, green, and red observations. This supports local development use for
-the cursor source; it does not establish broad deployment reliability.
+The launcher MSI installs the signed driver to `Program Files\VeruxAPB\Driver\EchoDriver.sys` through the compiled helper `packaging/echodriver/DriverInstaller.cs`. The standalone package uses `Setup.ps1`. Both pin the driver and certificate hashes and the signer thumbprint, and reject a service owned by another path.
 
-The current service is demand-start and points at
-`..\drayebr\build-rpm\EchoDriver.sys`. That binary is signed by a local
-`WDKTestCert`, and the repository's documented setup uses Windows test mode.
-It is not a production-signed driver package. The service path is tied to this
-development checkout. A copy beside `verux_apb.exe` would not install the
-service or make the test signature trusted on other Windows machines.
-
-Before bundling for other users, the driver needs a production signing and
-installation path, an update/uninstall flow, and validation on supported
-Windows configurations. Review whether the educational echo endpoints and
-general administrator process-read interface should be narrowed for the
-product. Keep the driver as a separate signed `.sys` installed by an elevated
-installer; the application can then use the Misc button to start and verify it.
+The driver is test-signed with a public development certificate, so Windows needs Secure Boot off and test signing on, then a restart. The helper checks both before installing and stops with the steps from the user manual (`User Guide and Setup.pdf`, 3.1 and 3.2). `Preflight` reads the state without changing anything. `EnableTestSigning` runs `bcdedit /set testsigning on` and only runs after the user confirms. Secure Boot is never changed by the product.
 
 Read-only local checks:
 
 ```powershell
 sc.exe qc EchoDriver
 Get-Service EchoDriver
-Get-AuthenticodeSignature ..\drayebr\build-rpm\EchoDriver.sys
-Get-FileHash ..\drayebr\build-rpm\EchoDriver.sys -Algorithm SHA256
+Get-AuthenticodeSignature <installed EchoDriver.sys>
+Get-FileHash <installed EchoDriver.sys> -Algorithm SHA256
 ```
 
 Windows references: [starting a service](https://learn.microsoft.com/en-us/windows/win32/services/starting-a-service),
