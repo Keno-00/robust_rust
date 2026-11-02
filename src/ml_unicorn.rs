@@ -193,6 +193,40 @@ impl Store {
             FLICK_TRIALS,
             TRACK_TRIALS
         );
+        self.remove_superseded(data)
+    }
+
+    /// Only the newest complete recording per source is kept; the other
+    /// source's recording is a separate model's data and is untouched.
+    fn remove_superseded(&self, latest: &Dataset) -> Result<(), String> {
+        #[derive(Deserialize)]
+        struct Header {
+            id: String,
+            source: String,
+            product: String,
+        }
+        let keep = self.path("datasets", &latest.id)?;
+        for path in self.files("datasets")? {
+            if path == keep {
+                continue;
+            }
+            let header: Header = self.read(&path)?;
+            if header.source != latest.source || header.product != latest.product {
+                continue;
+            }
+            fs::remove_file(&path).map_err(|e| {
+                format!(
+                    "Dataset saved, but the older recording {} could not be deleted: {e}",
+                    path.display()
+                )
+            })?;
+            crate::log_info!(
+                "ML dataset {} deleted: replaced by {} ({} source).",
+                header.id,
+                latest.id,
+                latest.source
+            );
+        }
         Ok(())
     }
 

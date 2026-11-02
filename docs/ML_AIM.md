@@ -8,8 +8,10 @@ identifies compatible files, but the UI offers no model-version choices.
 ## Recording and training
 
 Dataset uses the profile's selected coordinate source (color or memory), stops
-live input, and opens a separate native recording window. Train uses complete
-recordings for that source. The course source and scenario are visible while
+live input, and opens a separate native recording window. Train uses the complete
+recording for that source. Saving a new recording deletes the older one for the same
+source (the other source's recording is kept), so recordings never accumulate and
+training input stays within its 32 MiB limit. The course source and scenario are visible while
 recording. A mismatched model cannot be enabled or started. Color and memory
 models remain separate because their vertical goals differ.
 
