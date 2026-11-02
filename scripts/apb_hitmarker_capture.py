@@ -16,18 +16,77 @@ from apb_f8_common import Point, Rect
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('pid',type=int);parser.add_argument('output',type=Path)
+    parser.add_argument('--linked-events',action='store_true')
     args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=False)
     session=Session(args.pid)
     overlay=None
     try:
         if session.identity['image_sha256'] != BUILD_SHA256: raise RuntimeError('Hitmarker capture requires the audited executable hash.')
         base=module_base(session)
-        runtime=ValidationRuntime(session,{'format':'apb-build-candidates-v1','identity':session.identity,'module_base':hex(base)})
-        camera,hud,binding=runtime.camera()
+        def diagnostic(event,**fields):
+            with (args.output/'binding-diagnostics.jsonl').open('a',encoding='utf-8') as diagnostics:
+                diagnostics.write(json.dumps({'event':event,**fields})+'\n')
+        runtime=ValidationRuntime(session,{'format':'apb-build-candidates-v1','identity':session.identity,'module_base':hex(base)},diagnostic=diagnostic)
+        for attempt in range(30):
+            try:
+                camera,hud,binding=runtime.camera()
+                break
+            except RuntimeChanged as error:
+                diagnostic('startup_binding_rejected',attempt=attempt+1,reason=str(error))
+                print(f'Waiting for stable HUD ({attempt+1}/30): {error}',flush=True)
+                if attempt==29:raise
+                time.sleep(.5)
         world=u64(hud,0x2e0);control=u64(runtime.read(world,0x360),0x358)
         cb=runtime.typed(control,'controller',0x798);pawn=u64(cb,0x790)
         runtime.typed(pawn,'pawn')
         refs=[('hud',binding[3],0x1000),('controller',control,0x1400),('pawn',pawn,0x800)]
+        cursor=u64(runtime.read(base+0x3bd3340,8),0)
+        if not 0x10000<=cursor<0x800000000000 or cursor%8:
+            raise RuntimeError('Cursor object unavailable; enter a district before capture.')
+        cursor_header=runtime.read(cursor,8)
+        refs.append(('cursor',cursor,0x1000))
+        links=[]
+        if args.linked_events:
+            import re
+            seen={address for _,address,_ in refs}
+            def valid(pointer):return 0x10000<=pointer<0x800000000000 and pointer%8==0
+            def name(index):
+                table,count,capacity=struct.unpack('<Qii',runtime.read(base+0x3cd1f00,16))
+                if not valid(table) or not 0<=index<count<=capacity<=1000000:return None
+                entry=u64(runtime.read(table+index*8,8),0)
+                if not 0x10000<=entry<0x800000000000:return None
+                raw=runtime.read(entry,216);flags=struct.unpack_from('<I',raw,8)[0]
+                if flags>>1!=index:return None
+                if flags&1:
+                    words=struct.unpack('<96H',raw[24:216]);end=words.index(0) if 0 in words else -1
+                    text=raw[24:24+end*2].decode('utf-16-le') if end>=0 else None
+                else:text=raw[24:].split(b'\0',1)[0].decode('ascii')
+                if u64(runtime.read(table+index*8,8),0)!=entry:return None
+                return text
+            for parent,address,size in list(refs):
+                body=runtime.read(address,max(size,0x1000) if parent=='pawn' else size)
+                probes=0
+                for offset in range(0x40,len(body)-7,4):
+                    if len(links)>=6 or probes>=128:break
+                    pointer=u64(body,offset)
+                    if not valid(pointer) or pointer in seen:continue
+                    seen.add(pointer);probes+=1
+                    try:
+                        header=runtime.read(pointer,64)
+                        if not base<=u64(header,0)<base+0x537a000:continue
+                        class_pointer=u64(header,0x24)
+                        if not valid(class_pointer):continue
+                        class_header=runtime.read(class_pointer,64)
+                        if not base<=u64(class_header,0)<base+0x537a000:continue
+                        class_name=name(struct.unpack_from('<I',class_header,0x3c)[0])
+                        if not class_name or not re.search('HUD|Crosshair|Damage|Hit|Weapon|Replication',class_name,re.I):continue
+                        label='linked_'+str(len(links));runtime.read(pointer,0x800)
+                        if runtime.read(address+offset,8)!=body[offset:offset+8] or instance_signature(runtime.read(pointer,64))!=instance_signature(header):continue
+                        refs.append((label,pointer,0x800));links.append({'label':label,'parent':parent,'field':hex(offset),'address':hex(pointer),'class_name':class_name,'class_pointer':hex(class_pointer)})
+                    except (OSError,RuntimeError,UnicodeError,ValueError):continue
+            (args.output/'linked-subjects.json').write_text(json.dumps(links,indent=2),encoding='utf-8')
+            print('Bounded linked subjects: '+json.dumps(links),flush=True)
+            if not links:raise RuntimeError('No additional verified event-related objects found within bounded direct links; no repeat recording started.')
         subjects={label:{'address':hex(address),'probe_bytes':size,'signature':instance_signature(runtime.read(address,64))} for label,address,size in refs}
         u=session.user32
         u.GetClientRect.argtypes=[ctypes.c_void_p,ctypes.POINTER(Rect)];u.GetClientRect.restype=wintypes.BOOL
@@ -57,7 +116,7 @@ def main():
         completed={};previous={key:down(key) for key in (0x75,0x76,0x77)}
         with (args.output/'events.jsonl').open('x',encoding='utf-8',buffering=1) as stream:
             def log(event,**fields):stream.write(json.dumps({'utc':datetime.now(timezone.utc).isoformat(),'mono':time.monotonic(),'event':event,**fields})+'\n')
-            log('ready',identity=session.identity,subjects=subjects,world=hex(world),scope='Bounded object probes; sizes are not verified allocations. Centre ROI is assumed crosshair region; red/white counts are diagnostics, not accepted triggers.')
+            log('ready',identity=session.identity,subjects=subjects,links=links,world=hex(world),scope='Bounded object probes; sizes are not verified allocations. Centre ROI is assumed crosshair region; red/white counts are diagnostics, not accepted triggers.')
             (args.output/'ready.json').write_text(json.dumps({'identity':session.identity,'keys':{'F8':'idle no shooting','F6':'red NPC hitmarkers','F7':'white hitmarkers','F11':'exit'},'seconds_per_phase':8}),encoding='utf-8')
             print('READY F8 idle; F6 red NPC hits; F7 white hits. Each records 8 seconds. F11 exits.',flush=True)
             deadline=time.monotonic()+600
@@ -87,7 +146,10 @@ def main():
                         if u64(runtime.read(hud_address:=binding[3],0x2e8),0x2e0)!=world:raise RuntimeError('World changed; repeat capture.')
                         for label,address,size in refs:
                             body=runtime.read(address,size)
-                            if instance_signature(body)!=subjects[label]['signature']:raise RuntimeError(label+' instance changed; repeat capture.')
+                            if label=='cursor':
+                                if u64(runtime.read(base+0x3bd3340,8),0)!=cursor or body[:8]!=cursor_header:
+                                    raise RuntimeError('Cursor binding changed; repeat capture.')
+                            elif instance_signature(body)!=subjects[label]['signature']:raise RuntimeError(label+' instance changed; repeat capture.')
                             objects.append({'label':label,'body_hex':body.hex()})
                         session.require_foreground()
                     except ForegroundLost:

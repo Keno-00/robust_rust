@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "products": [
+    { "id": "verux.apb", "access": "paid", "purchase_url": "https://payhip.com/b/J3Omz", "directory": "VeruxAPB", "entropy": "veruxapb-license-ledger-v2" },
+    { "id": "verux.launcher", "access": "free", "purchase_url": "", "directory": "", "entropy": "" }
+  ],
+  "notices": []
+}

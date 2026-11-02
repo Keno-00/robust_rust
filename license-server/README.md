@@ -81,3 +81,9 @@ The multi-product Worker intentionally requires `product_id`; it does not accept
 Use [SECURITY_PROTOCOL_V2.md](../docs/SECURITY_PROTOCOL_V2.md) before distributing the 2.0 client. The new required bindings are `LICENSE_COORDINATOR`, private `ALGORITHM_ARTIFACTS`, and `ALGORITHM_RATE_LIMITER` (30/minute per product/license). New signing secret: `SERVER_SIGNING_KEY_PKCS8`; pin ID: `SERVER_SIGNING_KEY_ID`; immutable artifact selector: `APB_SMOOTHING_DIGEST`. Prepare the key and artifact through the maintainer scripts, never through the client. Do not release the signed-response-only client against the old unsigned Worker.
 
 Current production version (2026-10-03): `c631ca22-c3bc-466c-9edb-4ce8ffa74327`. Signing key, private R2 artifact, coordinator bindings, and migration 0003 are live; `/health` and pinned signed-refusal checks passed. See the rollout record in [hardening progress](../docs/SECURITY_HARDENING_PROGRESS.md).
+
+## Launcher delivery
+
+The product-independent launcher uses the read-only release catalog and private publishing flow documented in [Launcher releases](../docs/LAUNCHER_RELEASES.md). Its source is the sibling verux_launcher folder. Release signing is separate from license-response signing; existing license/product security is unchanged.
+
+Catalog freshness is handled by the separate private `verux-catalog-renewal` scheduled Worker (`wrangler.renewal.toml`). Deploy it separately from the public Worker; its release-signing secret must never be added to `wrangler.toml` or the public service. See the release guide for scheduling, publishing races and Discord failure alerts.

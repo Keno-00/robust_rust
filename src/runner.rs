@@ -57,6 +57,7 @@ pub struct RunnerControl {
     pub thread_running: bool,
     pub passport_error: Option<String>,
     pub runtime_error: Option<String>,
+    pub trigger_notice: Option<String>,
 }
 
 fn report_runtime_error(
@@ -306,6 +307,10 @@ fn mouse_sender_thread(mouse_state: Arc<Mutex<MouseStepState>>) {
 }
 
 struct RunnerCleanup {
+    #[cfg(feature = "memory")]
+    hitsound_stop: Option<Arc<AtomicBool>>,
+    #[cfg(feature = "memory")]
+    hitsound_handle: Option<std::thread::JoinHandle<()>>,
     algorithms: Option<crate::algorithm_runtime::AlgorithmRuntime>,
     inference: Option<crate::ml_unicorn::Controller>,
     shared_state: Arc<Mutex<RunnerControl>>,
@@ -321,11 +326,17 @@ struct RunnerCleanup {
 
 impl Drop for RunnerCleanup {
     fn drop(&mut self) {
+        #[cfg(feature = "memory")]
+        {
+            if let Some(stop) = self.hitsound_stop.take() { stop.store(true, Ordering::Relaxed); }
+            if let Some(handle) = self.hitsound_handle.take() { let _ = handle.join(); }
+        }
         // Release executable module memory before waiting for worker shutdown.
         self.inference.take();
         self.algorithms.take();
         if let Ok(mut state) = self.shared_state.lock() {
             state.thread_running = false;
+            state.trigger_notice = None;
             state.active = false;
             state.exit = true;
         }
@@ -463,6 +474,10 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
         memory_refresh_stop: None,
         memory_refresh_handle: None,
         object_workers: None,
+        #[cfg(feature = "memory")]
+        hitsound_stop: None,
+        #[cfg(feature = "memory")]
+        hitsound_handle: None,
         pegasus_stop: None,
         pegasus_handle: None,
     };
@@ -624,6 +639,55 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
         memory_source = Some(source);
     }
 
+    #[cfg(feature = "memory")]
+    if requirements.memory_hitsound {
+        let startup = (|| {
+            let sound = crate::hit_sound::sound(&config.hit_sound_name)?;
+            let source = find_running_apb_pid().and_then(ApbCursorSource::connect)?;
+            Ok::<_, String>((source, sound))
+        })();
+        let (mut source, sound) = match startup {
+            Ok(value) => value,
+            Err(error) => {
+                report_runtime_error(&shared_state, &event_proxy, format!("Hit sound could not start: {error}"));
+                return;
+            }
+        };
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = stop.clone();
+        let worker_shared = shared_state.clone();
+        let worker_proxy = event_proxy.clone();
+        log_info!("Memory red hit sound enabled: {}; white markers excluded.", config.hit_sound_name);
+        _cleanup.hitsound_stop = Some(stop);
+        _cleanup.hitsound_handle = Some(thread::spawn(move || {
+            while !worker_stop.load(Ordering::Relaxed) {
+                if !crate::passport::session_is_live() {
+                    report_runtime_error(&worker_shared, &worker_proxy, "Hit sound license session expired. Log in again.".into());
+                    break;
+                }
+                let active = match worker_shared.lock() {
+                    Ok(state) if !state.exit => state.active,
+                    _ => break,
+                };
+                if !active {
+                    source.reset_hit_event();
+                    thread::sleep(Duration::from_millis(20));
+                    continue;
+                }
+                let result = source.red_hit_event().and_then(|hit| {
+                    if hit { crate::hit_sound::play(sound)?; }
+                    Ok(())
+                });
+                if let Err(error) = result {
+                    report_runtime_error(&worker_shared, &worker_proxy, error);
+                    break;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+            crate::hit_sound::stop();
+        }));
+    }
+
     let cursor_source = if requirements.memory_pegasus {
         if !config.pegasus_on_red && !config.pegasus_on_green {
             report_runtime_error(&shared_state, &event_proxy,
@@ -672,7 +736,7 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
                 };
                 let crouch_down = unsafe { GetAsyncKeyState(17) < 0 };
                 let active = state.update(key_down, crouch_down, start.elapsed().as_secs_f64());
-                let observation = if active {
+                let observation = if active || source.trigger_suspended() {
                     match source.should_fire(on_red, on_green) {
                         Ok(value) => value,
                         Err(error) => {
@@ -697,6 +761,25 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
                         active && !blocked && observation == Some(true) && mouse.arduino_ready;
                 } else {
                     break;
+                }
+                let suspended = source.trigger_suspended();
+                let notice_changed = match worker_shared.lock() {
+                    Ok(mut shared) if !shared.exit => {
+                        let changed = shared.trigger_notice.is_some() != suspended;
+                        if changed {
+                            shared.trigger_notice = suspended.then(|| "Triggerbot suspended. Restore HUD (F12).".into());
+                        }
+                        changed
+                    }
+                    _ => break,
+                };
+                if notice_changed {
+                    if suspended {
+                        log_info!("Memory Triggerbot suspended: cursor value 0; pending shots canceled. Restore HUD (F12). Other features remain active.");
+                    } else {
+                        log_info!("Memory Triggerbot resumed: classified cursor signal restored.");
+                    }
+                    let _ = worker_proxy.send_event(());
                 }
                 thread::sleep(Duration::from_millis(2));
             }
@@ -771,9 +854,11 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
     let mut vertical_correction = VerticalCorrection::default();
     let mut last_memory_pawn = None;
 
+    if requirements.atlas_unicorn { log_info!("Memory Aim FOV: {:.1} client pixels from crosshair to projected body center; circular selection and visual share this radius.", config.memory_aim_fov); }
+    let visual_epoch = Instant::now();
     let mut visuals_active = config.aurora_enabled;
     if config.comet {
-        log_info!("Comet enabled: filter {:?}, placement {}, custom center ({:.1}%, {:.1}%), scale {:.2}, range 100 m; verified local XYZ and camera heading, client-relative placement.", config.comet_filter, crate::comet::PLACEMENTS[config.comet_placement.min(crate::comet::PLACEMENTS.len() - 1)], config.comet_x_percent, config.comet_y_percent, config.comet_scale);
+        log_info!("Comet enabled: filter {:?}, placement {}, custom center ({:.1}%, {:.1}%), scale {:.2}, range {:.0} m; verified local XYZ and camera heading, client-relative placement.", config.comet_filter, crate::comet::PLACEMENTS[config.comet_placement.min(crate::comet::PLACEMENTS.len() - 1)], config.comet_x_percent, config.comet_y_percent, config.comet_scale, config.radar_range);
     }
     let mut projections_active = projections_enabled;
     let mut projection_key_was_down = false;
@@ -934,14 +1019,11 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
                 projections: (projections_enabled && projections_active)
                     .then_some(config.lantern_filter),
                 esp_boxes: config.aurora_style == AuroraStyle::Boxes,
-                distances: (config.unicorn
+                distances: (projections_active && (config.visual_styles[crate::visual_style::PLAYERS].max_distance > 0.0 || config.visual_styles[crate::visual_style::PLAYERS].show_distance)) || (config.unicorn
                     && config.coordinate_source == CoordinateSource::Memory
                     && config.orbit_order == OrbitOrder::ClosestDistance)
-                    || (config.show_distance
-                        && (projections_active
-                            || (visuals_active
-                                && config.unicorn
-                                && config.coordinate_source == CoordinateSource::Memory))),
+                    || (config.visual_styles[crate::visual_style::TARGET].show_distance && config.unicorn_target_box
+                        && visuals_active && config.unicorn && config.coordinate_source == CoordinateSource::Memory),
             });
             if source.take_refresh_request() {
                 if let Some(refresh_now) = &memory_refresh_now {
@@ -1037,8 +1119,8 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
 
         let memory_target = if requirements.atlas_unicorn {
             memory_frame.as_ref().and_then(|frame| {
-                frame.target_with_priority(
-                    grab_w, grab_h, shift_x, shift_y, config.orbit_order, config.orbit_filter,
+                frame.target_in_fov(
+                    config.memory_aim_fov, 0, 0, config.orbit_order, config.orbit_filter,
                 )
             })
         } else {
@@ -1452,10 +1534,10 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
                                     return None;
                                 }
                                 let color = match point.role {
-                                    MissionRole::Opponent => config.opponent_color,
-                                    MissionRole::Teammate => config.teammate_color,
-                                    MissionRole::OutsideMission => config.outside_mission_color,
-                                    MissionRole::Unknown => config.unknown_color,
+                                    MissionRole::Opponent => config.visual_styles[crate::visual_style::PLAYERS].role_color(0),
+                                    MissionRole::Teammate => config.visual_styles[crate::visual_style::PLAYERS].role_color(1),
+                                    MissionRole::OutsideMission => config.visual_styles[crate::visual_style::PLAYERS].role_color(2),
+                                    MissionRole::Unknown => config.visual_styles[crate::visual_style::PLAYERS].role_color(3),
                                 };
                                 Some(AuroraMarker {
                                     object_kind: None,
@@ -1483,8 +1565,13 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
                     .and_then(|_| workers.error()).and_then(|_| match (memory_frame.as_ref(), memory_source.as_ref()) {
                     (Some(frame), Some(source)) => {
                         let radius = if config.comet && config.comet_jade {
-                            10_000.0 + frame.comet_origin.map(|origin| origin.iter().zip(frame.camera.position).map(|(a,b)| (f64::from(*a)-f64::from(b)).powi(2)).sum::<f64>().sqrt()).unwrap_or(0.0)
-                        } else { 8_000.0 };
+                            f64::from(config.radar_range) * crate::apb_orchid::APB_UNITS_PER_METER + frame.comet_origin.map(|origin| origin.iter().zip(frame.camera.position).map(|(a,b)| (f64::from(*a)-f64::from(b)).powi(2)).sum::<f64>().sqrt()).unwrap_or(0.0)
+                        } else { 0.0 };
+                        let visual_radius = [(config.jade, crate::visual_style::PUMPKINS), (config.wisps, crate::visual_style::PROJECTILES)].into_iter().filter(|(enabled,_)| *enabled).map(|(_,index)| {
+                            let meters=config.visual_styles[index].max_distance;
+                            if meters==0.0 {f64::INFINITY} else {f64::from(meters)*crate::apb_orchid::APB_UNITS_PER_METER}
+                        }).fold(0.0_f64,f64::max);
+                        let radius=radius.max(visual_radius);
                         source.object_points(workers, frame.world, frame.camera.position, radius)
                     },
                     _ => Ok(Vec::new()),
@@ -1507,7 +1594,8 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
                             if !config.jade { continue; }
                         }
                         let distance = object.position.iter().zip(frame.camera.position).map(|(a,b)| (f64::from(*a)-f64::from(b)).powi(2)).sum::<f64>().sqrt();
-                        if distance > 8_000.0 { continue; }
+                        let style=&config.visual_styles[if object.kind==crate::apb_glow::ObjectKind::Jade {crate::visual_style::PUMPKINS} else {crate::visual_style::PROJECTILES}];
+                        if style.max_distance>0.0 && distance>f64::from(style.max_distance)*crate::apb_orchid::APB_UNITS_PER_METER { continue; }
                         let projected = match frame.camera.project(object.position, width, height) {
                             Ok(point) => point,
                             Err(error) => {
@@ -1548,7 +1636,7 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
                 }
             }
             let render = (visuals_active
-                && (config.halo || config.unicorn_target_box || config.lines || config.show_distance)
+                && (config.halo || config.unicorn_target_box || config.lines)
                 && (!requirements.atlas_unicorn || memory_frame.is_some()))
                 || ((projections_active || config.comet || config.jade || config.wisps) && memory_frame.is_some());
             if render {
@@ -1587,6 +1675,8 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
                     }
                 });
                 if let Err(error) = ov.draw_frame(AuroraFrame {
+                    config: &config,
+                    seconds: visual_epoch.elapsed().as_secs_f32(),
                     center: [draw_center_x, draw_center_y],
                     grab_shift: [shift_x, shift_y],
                     grab_size: [grab_w, grab_h],
@@ -1598,12 +1688,10 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
                     draw_lines: visuals_active && config.lines,
                     draw_fov: visuals_active && config.halo,
                     draw_target_box: visuals_active && config.unicorn_target_box,
-                    draw_target_distance: visuals_active && config.show_distance,
+                    draw_target_distance: visuals_active && config.unicorn_target_box && config.visual_styles[crate::visual_style::TARGET].show_distance,
                     line_origin: config.unicorn_line_origin,
-                    aurora_style: config.aurora_style,
                     esp: &projection_points,
                     comet: if config.comet { memory_frame.as_ref().map(|frame| (frame, &config, radar_pumpkins.as_slice())) } else { None },
-                    show_distance: config.show_distance,
                 }) {
                     report_runtime_error(&shared_state, &event_proxy, error);
                     return;

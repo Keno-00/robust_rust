@@ -8,6 +8,9 @@ export interface SurfaceEnv {
   APB_SURFACE_DIGEST?: string;
   APB_SURFACE_OBJECTS_DIGEST?: string;
   APB_SURFACE_ELIGIBILITY_DIGEST?: string;
+  APB_SURFACE_HITSOUND_DIGEST?: string;
+  APB_SURFACE_VISUALS_DIGEST?: string;
+  APB_CB_SURFACE_VISUALS_DIGEST?: string;
   APB_CB_SURFACE_KEY?: string;
   APB_CB_SURFACE_ELIGIBILITY_DIGEST?: string;
 }
@@ -18,10 +21,12 @@ export async function deliverSurface(body: Record<string, unknown>, env: Surface
   const color = product === "verux.apb.cb";
   const eligibility = body.algorithm_id === `${product}.surface.eligibility`;
   const objects = !color && body.algorithm_id === "verux.apb.surface.objects";
-  const catalogId = eligibility ? "surface.eligibility" : objects ? "surface.objects" : "surface";
-  const expectedDigest = color ? env.APB_CB_SURFACE_ELIGIBILITY_DIGEST : eligibility ? env.APB_SURFACE_ELIGIBILITY_DIGEST : objects ? env.APB_SURFACE_OBJECTS_DIGEST : env.APB_SURFACE_DIGEST;
+  const hitsound = !color && body.algorithm_id === "verux.apb.surface.hitsound";
+  const visuals = body.algorithm_id === `${product}.surface.visuals`;
+  const catalogId = visuals ? "surface.visuals" : hitsound ? "surface.hitsound" : eligibility ? "surface.eligibility" : objects ? "surface.objects" : "surface";
+  const expectedDigest = visuals ? (color ? env.APB_CB_SURFACE_VISUALS_DIGEST : env.APB_SURFACE_VISUALS_DIGEST) : color ? env.APB_CB_SURFACE_ELIGIBILITY_DIGEST : hitsound ? env.APB_SURFACE_HITSOUND_DIGEST : eligibility ? env.APB_SURFACE_ELIGIBILITY_DIGEST : objects ? env.APB_SURFACE_OBJECTS_DIGEST : env.APB_SURFACE_DIGEST;
   const surfaceKey = color ? env.APB_CB_SURFACE_KEY : env.APB_SURFACE_KEY;
-  if ((!eligibility && !objects && (color || body.algorithm_id !== "verux.apb.surface")) || body.abi_version !== 1
+  if ((!visuals && !eligibility && !objects && !hitsound && (color || body.algorithm_id !== "verux.apb.surface")) || body.abi_version !== 1
     || typeof body.recipient_key !== "string" || body.recipient_key.length > 100) {
     throw new RequestFailure(400, "invalid_surface", "Update the application and retry.");
   }

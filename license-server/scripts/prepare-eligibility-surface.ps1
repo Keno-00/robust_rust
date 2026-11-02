@@ -17,7 +17,7 @@ try {
     $labels['u134'] = 'Projectiles'
     $labels['u135'] = 'Memory Features'
     $labels['u136'] = 'Vertical tracking'
-    $labels['u137'] = 'Current'
+    $labels['u137'] = 'Default'
     $labels['u138'] = 'No Y'
     $labels['u139'] = 'Head'
     $labels['u140'] = 'Neck'

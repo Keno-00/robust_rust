@@ -1,0 +1,20 @@
+name = "verux-catalog-renewal"
+account_id = "8b35956ff018a988ed0a6c84df4f4807"
+main = "src/launcher-renewal.ts"
+compatibility_date = "2026-08-27"
+workers_dev = false
+preview_urls = false
+
+[vars]
+RELEASE_PUBLIC_KEY = "20qEEXmnfLUXKYruQSi4Cu9twm+igi5aT7JbqbUZ7qg="
+
+[triggers]
+crons = ["17 */4 * * *"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[[r2_buckets]]
+binding = "RELEASE_ARTIFACTS"
+bucket_name = "verux-release-artifacts"

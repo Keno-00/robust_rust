@@ -72,7 +72,7 @@ include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/petal_ids.rs"));
 
 pub(crate) fn receive() -> Result<Arc<Catalog>, String> {
     let (bytes, session_hash) = crate::algorithm_runtime::receive_algorithm(
-        "verux.apb.surface.eligibility",
+        "verux.apb.surface.visuals",
         128 * 1024,
         &Arc::new(AtomicU32::new(0)),
         &Arc::new(AtomicBool::new(false)),

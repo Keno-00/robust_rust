@@ -71,6 +71,7 @@ impl LanternFilter {
 
 #[derive(Debug, Clone, Copy)]
 pub struct RuntimeRequirements {
+    pub memory_hitsound: bool,
     pub atlas_unicorn: bool,
     pub memory_pegasus: bool,
     pub color_unicorn: bool,
@@ -84,6 +85,7 @@ pub struct RuntimeRequirements {
 /// Effective capability gates shared by UI, preparation, and runtime.
 #[derive(Debug, Clone, Copy)]
 pub struct FeatureEligibility {
+    pub hitsound: bool,
     pub memory: bool,
     pub aim: bool,
     pub trigger: bool,
@@ -172,6 +174,11 @@ pub enum VelvetEffect {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProfileConfig {
+    pub sb_protect: bool,
+    pub memory_aim_fov: f32,
+    pub visual_styles: [crate::visual_style::VisualStyle; crate::visual_style::COUNT],
+    pub visual_style_error: Option<String>,
+    pub radar_range: f32,
     pub com_port: String,
     pub monitor_resolution: Vec2i,
     pub grab_resolution: Vec2i,
@@ -179,6 +186,8 @@ pub struct ProfileConfig {
     pub unicorn_shift: Vec2i,
     pub coordinate_source: CoordinateSource,
     pub memory_features: bool,
+    pub hit_sound: bool,
+    pub hit_sound_name: String,
     pub pegasus_source: CoordinateSource,
     pub comet: bool,
     pub comet_jade: bool,
@@ -273,6 +282,11 @@ pub struct ProfileConfig {
 impl Default for ProfileConfig {
     fn default() -> Self {
         Self {
+            sb_protect: true,
+            memory_aim_fov: 250.0,
+            visual_styles: crate::visual_style::migrate_defaults(),
+            visual_style_error: None,
+            radar_range: 100.0,
             com_port: "COM1".to_string(),
             monitor_resolution: Vec2i::new(1920, 1080),
             grab_resolution: Vec2i::new(500, 500),
@@ -280,6 +294,8 @@ impl Default for ProfileConfig {
             unicorn_shift: Vec2i::new(0, 0),
             coordinate_source: CoordinateSource::ColorDetection,
             memory_features: true,
+            hit_sound: false,
+            hit_sound_name: "minecraft_hit.wav".into(),
             pegasus_source: CoordinateSource::Memory,
             comet: false,
             comet_jade: false,
@@ -383,7 +399,7 @@ impl ProfileConfig {
         let color_aim = self.unicorn && self.coordinate_source == CoordinateSource::ColorDetection;
         let memory_trigger = self.pegasus && memory && self.pegasus_source == CoordinateSource::Memory;
         let color_trigger = self.pegasus && self.pegasus_source == CoordinateSource::ColorDetection;
-        FeatureEligibility { memory, aim: memory_aim || color_aim, trigger: memory_trigger || color_trigger,
+        FeatureEligibility { hitsound: memory && self.hit_sound, memory, aim: memory_aim || color_aim, trigger: memory_trigger || color_trigger,
             memory_aim, color_aim, memory_trigger, color_trigger }
     }
 
@@ -393,6 +409,7 @@ impl ProfileConfig {
         let eligible = self.eligibility();
         let mut effective = self.clone();
         effective.memory_features = eligible.memory;
+        effective.hit_sound = eligible.hitsound;
         effective.unicorn = eligible.aim;
         effective.pegasus = eligible.trigger;
         if !eligible.memory {
@@ -421,8 +438,14 @@ impl ProfileConfig {
 
     pub fn validate_eligibility(&self) -> Result<(), String> {
         let eligible = self.eligibility();
+        if let Some(error) = &self.visual_style_error { return Err(error.clone()); }
+        for style in &self.visual_styles { style.validate()?; }
+        if !self.radar_range.is_finite() || !(10.0..=1000.0).contains(&self.radar_range) { return Err("Radar range must be 10-1000 meters.".into()); }
+        if eligible.memory_aim && (!self.memory_aim_fov.is_finite() || !(1.0..=4000.0).contains(&self.memory_aim_fov)) { return Err("Memory Aim FOV must be 1-4000 pixels.".into()); }
+        #[cfg(feature = "memory")]
+        if eligible.hitsound { crate::hit_sound::sound(&self.hit_sound_name)?; }
         if eligible.color_aim && !matches!(self.vertical_tracking, VerticalTracking::Current | VerticalTracking::NoY) {
-            return Err("Approximate body points require Memory aim. Select Current or No Y for Color aim.".into());
+            return Err("Approximate body points require Memory aim. Select Default or No Y for Color aim.".into());
         }
         if eligible.memory_aim && self.vertical_tracking == VerticalTracking::ClosestPoint && !self.vertical_points.iter().any(|enabled| *enabled) {
             return Err("Closest Point requires at least one approximate point. Select Head, Neck, Torso or Feet.".into());
@@ -438,6 +461,7 @@ impl ProfileConfig {
         let color_unicorn = eligibility.color_aim;
         let color_pegasus = eligibility.color_trigger;
         RuntimeRequirements {
+            memory_hitsound: eligibility.hitsound,
             atlas_unicorn, memory_pegasus, color_unicorn, color_pegasus,
             orchid_atlas: atlas_unicorn || effective.lanterns || effective.comet || effective.jade || effective.wisps,
             screen_canvas: color_unicorn || color_pegasus || (effective.unicorn && effective.drift_guard),
@@ -525,6 +549,8 @@ impl ProfileConfig {
             cfg.unicorn_shift = v;
         }
         if let Some(v) = map.get("memory_features") { cfg.memory_features = parse_bool(v); }
+        if let Some(v) = map.get("hit_sound") { cfg.hit_sound = parse_bool(v); }
+        if let Some(v) = map.get("hit_sound_name") { cfg.hit_sound_name = v.clone(); }
         if let Some(v) = map.get("coordinate_source") {
             cfg.coordinate_source = match v.as_str() {
                 "memory" | "Memory" => CoordinateSource::Memory,
@@ -888,11 +914,30 @@ impl ProfileConfig {
             cfg.mouse_polling_rate = v;
         }
 
+        if let Some(v) = map.get("sb_protect") { cfg.sb_protect = parse_bool(v); }
+        if let Some(v) = map.get("memory_aim_fov") { cfg.memory_aim_fov = v.parse().unwrap_or(f32::NAN); }
+        else { cfg.memory_aim_fov=(cfg.grab_resolution.x.min(cfg.grab_resolution.y) as f32 * 0.5).clamp(1.0,4000.0); }
+        if let Some(v) = map.get("radar_range") { cfg.radar_range = v.parse().unwrap_or(f32::NAN); }
+        cfg.visual_styles = crate::visual_style::migrate(&cfg);
+        if let Some(v) = map.get("visual_styles_v1") {
+            match serde_json::from_str(v) {
+                Ok(styles) => cfg.visual_styles = styles,
+                Err(error) => cfg.visual_style_error = Some(format!("Saved visual appearance is invalid: {error}. Restore the profile before saving or starting.")),
+            }
+        }
+        if cfg.visual_style_error.is_none() {
+            cfg.visual_style_error=cfg.visual_styles.iter().find_map(|style| style.validate().err());
+        }
+        if let Some(error)=&cfg.visual_style_error { crate::log_err!("Profile visual appearance rejected: {error}"); }
         cfg
     }
 
     pub fn to_map(&self) -> HashMap<String, String> {
         let mut map = HashMap::new();
+        map.insert("sb_protect".into(), self.sb_protect.to_string());
+        map.insert("memory_aim_fov".into(), self.memory_aim_fov.to_string());
+        map.insert("radar_range".into(), self.radar_range.to_string());
+        map.insert("visual_styles_v1".into(), serde_json::to_string(&self.visual_styles).expect("Validated visual appearance serializes"));
         map.insert("com_port".to_string(), self.com_port.clone());
 
         let format_vec2 = |v: Vec2i| -> String { format!("{}, {}", v.x, v.y) };
@@ -911,6 +956,8 @@ impl ProfileConfig {
             format_bool(self.lanterns),
         );
         map.insert("memory_features".into(), format_bool(self.memory_features));
+        map.insert("hit_sound".into(), format_bool(self.hit_sound));
+        map.insert("hit_sound_name".into(), self.hit_sound_name.clone());
         map.insert("vertical_tracking".into(), self.vertical_tracking.key().into());
         for (key, enabled) in ["vertical_head", "vertical_neck", "vertical_torso", "vertical_feet"].into_iter().zip(self.vertical_points) {
             map.insert(key.into(), format_bool(enabled));
@@ -1291,6 +1338,8 @@ pub fn load_profile(name: &str) -> std::io::Result<Option<ProfileConfig>> {
 }
 
 pub fn save_profile(name: &str, config: &ProfileConfig) -> std::io::Result<()> {
+    if let Some(error) = &config.visual_style_error { return Err(std::io::Error::other(error.clone())); }
+    for style in &config.visual_styles { style.validate().map_err(std::io::Error::other)?; }
     let path = get_config_path();
     if name.trim().is_empty() { return Err(std::io::Error::other("Profile name cannot be empty.")); }
     let mut sections = crate::folio_store::read(&path)?;

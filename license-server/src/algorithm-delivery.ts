@@ -20,7 +20,7 @@ export async function deliverAlgorithm(body: Record<string, unknown>, env: Algor
   if (product !== "verux.apb" && product !== "verux.apb.cb") throw new RequestFailure(400, "invalid_product", "This product is unsupported.");
   const color = product === "verux.apb.cb";
   const resource = typeof body.algorithm_id === "string" && body.algorithm_id.startsWith(`${product}.`) ? body.algorithm_id.slice(product.length + 1) : "";
-  if (["surface", "surface.objects", "surface.eligibility"].includes(resource)) return deliverSurface(body, env, sessionHash, expiresAt);
+  if (["surface", "surface.objects", "surface.eligibility", "surface.hitsound", "surface.visuals"].includes(resource)) return deliverSurface(body, env, sessionHash, expiresAt);
   const selected = resource === "smoothing" ? { name: "smoothing", digest: color ? env.APB_CB_SMOOTHING_DIGEST : env.APB_SMOOTHING_DIGEST, maximum: 128 * 1024 }
     : resource === "training" ? { name: "training", digest: color ? env.APB_CB_TRAINING_DIGEST : env.APB_TRAINING_DIGEST, maximum: 1024 * 1024 }
     : resource === "inference" ? { name: "inference", digest: color ? env.APB_CB_INFERENCE_DIGEST : env.APB_INFERENCE_DIGEST, maximum: 1024 * 1024 }

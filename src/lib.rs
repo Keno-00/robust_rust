@@ -5,6 +5,8 @@ mod color_only;
 pub mod apb_process;
 #[cfg(feature = "memory")]
 pub mod apb_spark;
+#[cfg(feature = "memory")]
+pub mod hit_sound;
 pub mod apb_detection;
 #[cfg(feature = "memory")]
 pub mod apb_atlas;
@@ -62,3 +64,8 @@ mod protocol_names;
 mod native_text;
 mod folio_keys;
 mod folio_store;
+
+mod sb_protect;
+pub mod visual_style;
+
+mod visual_painter;

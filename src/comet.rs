@@ -1,13 +1,7 @@
 //! Client-relative comet from verified pawn XYZ and the selected camera matrix.
 use crate::apb_atlas::AtlasFrame;
 use crate::apb_orchid::{MissionRole, APB_UNITS_PER_METER};
-use crate::config::{ProfileConfig, LanternFilter, Rgb};
-use windows::Win32::Foundation::COLORREF;
-use windows::Win32::Graphics::Gdi::{
-    CreatePen, CreateSolidBrush, DeleteObject, Ellipse, LineTo, MoveToEx, SelectObject, HDC,
-    PS_SOLID,
-};
-
+use crate::config::{LanternFilter, ProfileConfig, Rgb};
 pub const PLACEMENTS: [&str; 10] = [
     "Top Left",
     "Top Right",
@@ -23,64 +17,13 @@ pub const PLACEMENTS: [&str; 10] = [
 pub const CUSTOM_PLACEMENT: usize = 8;
 pub const MIN_SCALE: f32 = 0.5;
 pub const MAX_SCALE: f32 = 2.0;
-const RANGE_METERS: f64 = 100.0;
 
 pub fn includes(filter: LanternFilter, role: MissionRole) -> bool {
     filter.includes(role)
 }
 
-fn color(color: Rgb) -> COLORREF {
-    COLORREF(color.r as u32 | ((color.g as u32) << 8) | ((color.b as u32) << 16))
-}
-
-unsafe fn line(hdc: HDC, a: [i32; 2], b: [i32; 2]) -> Result<(), String> {
-    if !MoveToEx(hdc, a[0], a[1], None).as_bool() || !LineTo(hdc, b[0], b[1]).as_bool() {
-        return Err("Draw Comet cross failed. Restart processing; see the diagnostic log.".into());
-    }
-    Ok(())
-}
-
-unsafe fn dot(hdc: HDC, point: [i32; 2], radius: i32, tint: Rgb) -> Result<(), String> {
-    let pen = CreatePen(PS_SOLID, 1, color(tint));
-    let brush = CreateSolidBrush(color(tint));
-    if pen.is_invalid() || brush.is_invalid() {
-        if !pen.is_invalid() {
-            let _ = DeleteObject(pen);
-        }
-        if !brush.is_invalid() {
-            let _ = DeleteObject(brush);
-        }
-        return Err("Allocate Comet dot objects failed. Restart processing.".into());
-    }
-    let old_pen = SelectObject(hdc, pen);
-    let old_brush = SelectObject(hdc, brush);
-    let ready = !old_pen.is_invalid() && !old_brush.is_invalid();
-    let drawn = ready
-        && Ellipse(
-            hdc,
-            point[0] - radius,
-            point[1] - radius,
-            point[0] + radius + 1,
-            point[1] + radius + 1,
-        )
-        .as_bool();
-    if !old_pen.is_invalid() {
-        SelectObject(hdc, old_pen);
-    }
-    if !old_brush.is_invalid() {
-        SelectObject(hdc, old_brush);
-    }
-    let _ = DeleteObject(pen);
-    let _ = DeleteObject(brush);
-    if drawn {
-        Ok(())
-    } else {
-        Err("Draw Comet dot failed. Restart processing.".into())
-    }
-}
-
-pub unsafe fn draw(
-    hdc: HDC,
+pub fn draw(
+    painter: &mut crate::visual_painter::Painter,
     width: i32,
     height: i32,
     frame: &AtlasFrame,
@@ -108,10 +51,14 @@ pub unsafe fn draw(
     if !config.comet_scale.is_finite() || !(MIN_SCALE..=MAX_SCALE).contains(&config.comet_scale) {
         return Err("Comet scale is invalid. Select a scale from 0.5 to 2.0 in Visuals.".into());
     }
-    let radius = (f64::from(width.min(height)) * 0.11 * f64::from(config.comet_scale)).round().max(6.0);
+    let radius = (f64::from(width.min(height)) * 0.11 * f64::from(config.comet_scale))
+        .round()
+        .max(6.0);
     let margin = radius + 8.0;
     if f64::from(width) < margin * 2.0 || f64::from(height) < margin * 2.0 {
-        return Err("Comet viewport is too small. Restore the APB window and restart processing.".into());
+        return Err(
+            "Comet viewport is too small. Restore the APB window and restart processing.".into(),
+        );
     }
     let anchors = [
         [0.0, 0.0],
@@ -148,51 +95,99 @@ pub unsafe fn draw(
             (center[1] + y).round() as i32,
         ]
     };
-    let pen = CreatePen(PS_SOLID, 1, color(Rgb::new(190, 190, 190)));
-    if pen.is_invalid() {
-        return Err("Allocate Comet cross pen failed. Restart processing.".into());
+    let style = &config.visual_styles[crate::visual_style::RADAR];
+    let center_pixel = pixel(0.0, 0.0);
+    let mut backdrop = *style;
+    backdrop.role_colors = false;
+    backdrop.color = [0.0; 3];
+    backdrop.shape = 0;
+    backdrop.mode = 0;
+    backdrop.opacity = style.tint(Rgb::new(1, 1, 1), painter.seconds).1 * style.fill_opacity;
+    backdrop.fill_opacity = 1.0;
+    backdrop.outline = 0;
+    if style.fill {
+        painter.shape(
+            [
+                center_pixel[0] - radius as i32,
+                center_pixel[1] - radius as i32,
+                center_pixel[0] + radius as i32,
+                center_pixel[1] + radius as i32,
+            ],
+            &backdrop,
+            Rgb::new(1, 1, 1),
+            true,
+        )?;
     }
-    let old = SelectObject(hdc, pen);
-    if old.is_invalid() {
-        let _ = DeleteObject(pen);
-        return Err("Select Comet cross pen failed.".into());
-    }
-    // The cross stays aligned to the screen; only pawn offsets use camera heading.
-    let result = (|| {
-        line(hdc, pixel(-radius, 0.0), pixel(radius, 0.0))?;
-        line(hdc, pixel(0.0, -radius), pixel(0.0, radius))?;
-        Ok::<(), String>(())
-    })();
-    SelectObject(hdc, old);
-    let _ = DeleteObject(pen);
-    result?;
+    painter.line(
+        pixel(-radius, 0.0),
+        pixel(radius, 0.0),
+        style,
+        Rgb::new(190, 190, 190),
+    )?;
+    painter.line(
+        pixel(0.0, -radius),
+        pixel(0.0, radius),
+        style,
+        Rgb::new(190, 190, 190),
+    )?;
+    let dot = |painter: &mut crate::visual_painter::Painter, point: [i32; 2], r: i32, tint: Rgb| {
+        let mut dot_style = *style;
+        dot_style.fill = true;
+        dot_style.fill_opacity = 1.0;
+        dot_style.shape = 1;
+        painter.shape(
+            [
+                point[0] - r,
+                point[1] - r,
+                point[0] + r + 1,
+                point[1] + r + 1,
+            ],
+            &dot_style,
+            tint,
+            true,
+        )
+    };
     for pawn in &frame.comet_pawns {
         let delta = [
             f64::from(pawn.position[0]) - f64::from(origin[0]),
             f64::from(pawn.position[1]) - f64::from(origin[1]),
         ];
-        let range = RANGE_METERS * APB_UNITS_PER_METER;
+        let range = f64::from(config.radar_range) * APB_UNITS_PER_METER;
         if delta[0].hypot(delta[1]) > range {
             continue;
         }
         let x = (delta[0] * right[0] + delta[1] * right[1]) * (radius - 5.0) / range;
         let y = -(delta[0] * forward[0] + delta[1] * forward[1]) * (radius - 5.0) / range;
         let tint = match pawn.role {
-            MissionRole::Opponent => config.opponent_color,
-            MissionRole::Teammate => config.teammate_color,
-            MissionRole::OutsideMission => config.outside_mission_color,
-            MissionRole::Unknown => config.unknown_color,
+            MissionRole::Opponent => style.role_color(0),
+            MissionRole::Teammate => style.role_color(1),
+            MissionRole::OutsideMission => style.role_color(2),
+            MissionRole::Unknown => style.role_color(3),
         };
-        dot(hdc, pixel(x, y), 3, tint)?;
+        dot(painter, pixel(x, y), style.marker_size, tint)?;
     }
     for pumpkin in pumpkins {
-        let delta = [f64::from(pumpkin.position[0] - origin[0]), f64::from(pumpkin.position[1] - origin[1])];
-        let range = RANGE_METERS * APB_UNITS_PER_METER;
-        if delta[0].hypot(delta[1]) > range { continue; }
+        let delta = [
+            f64::from(pumpkin.position[0] - origin[0]),
+            f64::from(pumpkin.position[1] - origin[1]),
+        ];
+        let range = f64::from(config.radar_range) * APB_UNITS_PER_METER;
+        if delta[0].hypot(delta[1]) > range {
+            continue;
+        }
         let x = (delta[0] * right[0] + delta[1] * right[1]) * (radius - 5.0) / range;
         let y = -(delta[0] * forward[0] + delta[1] * forward[1]) * (radius - 5.0) / range;
-        let tint = if pumpkin.red { Rgb::new(255, 70, 70) } else { Rgb::new(255, 155, 50) };
-        dot(hdc, pixel(x, y), 3, tint)?;
+        let tint = if pumpkin.red {
+            Rgb::new(255, 70, 70)
+        } else {
+            Rgb::new(255, 155, 50)
+        };
+        dot(painter, pixel(x, y), style.marker_size, tint)?;
     }
-    dot(hdc, pixel(0.0, 0.0), 4, Rgb::new(245, 245, 245))
+    dot(
+        painter,
+        pixel(0.0, 0.0),
+        style.marker_size + 1,
+        Rgb::new(245, 245, 245),
+    )
 }

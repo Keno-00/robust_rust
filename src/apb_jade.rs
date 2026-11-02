@@ -10,6 +10,7 @@ const OWNER: ObjectType = ObjectType::new(0x3164988, 1151);
 const PREFAB: ObjectType = ObjectType::new(0x3151050, 4741);
 const PROP: ObjectType = ObjectType::new(0x2B3A290, 1650);
 const ASSET_RVA: EncodedOffset = EncodedOffset::new(0x31517A8);
+const MAX_CHANGED_CAPTURES: u8 = 5;
 
 /// Asset name indices are allocated at runtime; red remains visually unconfirmed.
 pub(crate) fn asset_color(
@@ -96,6 +97,9 @@ pub struct JadeSurvey {
     world: Option<PawnRef>,
     levels: HashMap<EncodedAddress, LevelCache>,
     next_level: usize,
+    changed_this_survey: HashSet<EncodedAddress>,
+    stable_this_survey: HashSet<EncodedAddress>,
+    changed_captures: HashMap<EncodedAddress, u8>,
     pub scanned_levels: usize,
     pub total_levels: usize,
 }
@@ -108,6 +112,9 @@ impl JadeSurvey {
             world: None,
             levels: HashMap::new(),
             next_level: 0,
+            changed_this_survey: HashSet::new(),
+            stable_this_survey: HashSet::new(),
+            changed_captures: HashMap::new(),
             scanned_levels: 0,
             total_levels: 0,
         })
@@ -150,8 +157,33 @@ impl JadeSurvey {
             .map(Some)
     }
 
+    fn withhold_changed(
+        &mut self,
+        reference: PawnRef,
+        phase: &str,
+    ) -> Result<Option<JadeObject>, String> {
+        if self.changed_this_survey.insert(reference.address) {
+            self.stable_this_survey.remove(&reference.address);
+            let attempts = self.changed_captures.entry(reference.address).or_default();
+            *attempts = attempts.saturating_add(1);
+            crate::log_info!(
+                "Pumpkin at 0x{:X}: {phase}; sample withheld, unstable capture {}/{}.",
+                reference.address.get(),
+                *attempts,
+                MAX_CHANGED_CAPTURES
+            );
+            if *attempts >= MAX_CHANGED_CAPTURES {
+                return Err(format!(
+                    "Pumpkin at 0x{:X} remained unstable for {} captures; markers withheld. Wait for the level to settle and restart processing.",
+                    reference.address.get(), MAX_CHANGED_CAPTURES
+                ));
+            }
+        }
+        Ok(None)
+    }
+
     fn pumpkin(
-        &self,
+        &mut self,
         reader: &AtlasReader,
         reference: PawnRef,
     ) -> Result<Option<JadeObject>, String> {
@@ -160,27 +192,29 @@ impl JadeSurvey {
         if orchid::kind(&body, self.base.get()) != PREFAB
             || orchid::signature(&body) != reference.signature
         {
-            return Ok(None);
+            return self.withhold_changed(reference, "prefab identity changed before capture");
         }
         let asset = orchid::u64_at(&body, const { EncodedOffset::new(0x308) }.get() as usize);
         if !orchid::pointer(asset) {
+            if self.changed_captures.contains_key(&reference.address) {
+                self.stable_this_survey.insert(reference.address);
+            }
             return Ok(None);
         }
         let asset_body = orchid::read::<64>(reader, self.pid, asset)?;
         if asset_color(reader, self.pid, self.base.get(), &asset_body)?.is_none() {
+            if self.changed_captures.contains_key(&reference.address) {
+                self.stable_this_survey.insert(reference.address);
+            }
             return Ok(None);
         }
         let position = std::array::from_fn(|index| {
             let offset = const { EncodedOffset::new(0x88) }.get() as usize + index * 4;
             f32::from_le_bytes(body[offset..offset + 4].try_into().unwrap()) as f64
         });
-        if position
-            .iter()
-            .any(|value| !value.is_finite() || value.abs() > 10_000_000.0)
-        {
-            return Err("Pumpkin prefab contains invalid coordinates.".into());
-        }
-        if orchid::typed(reader, self.pid, self.base.get(), address, PREFAB)? != reference.signature
+        let final_header = orchid::read::<64>(reader, self.pid, address)?;
+        if orchid::kind(&final_header, self.base.get()) != PREFAB
+            || orchid::signature(&final_header) != reference.signature
             || orchid::field(
                 reader,
                 self.pid,
@@ -189,7 +223,16 @@ impl JadeSurvey {
             || orchid::signature(&orchid::read::<64>(reader, self.pid, asset)?)
                 != orchid::signature(&asset_body)
         {
-            return Err("Pumpkin prefab or asset changed during capture.".into());
+            return self.withhold_changed(reference, "prefab or asset changed during capture");
+        }
+        if position
+            .iter()
+            .any(|value| !value.is_finite() || value.abs() > 10_000_000.0)
+        {
+            return Err("Pumpkin prefab contains invalid coordinates.".into());
+        }
+        if self.changed_captures.contains_key(&reference.address) {
+            self.stable_this_survey.insert(reference.address);
         }
         Ok(Some(JadeObject {
             instance: reference,
@@ -199,13 +242,18 @@ impl JadeSurvey {
     }
 
     fn pumpkin_in_membership(
-        &self,
+        &mut self,
         reader: &AtlasReader,
         reference: PawnRef,
         array_address: u64,
     ) -> Result<Option<JadeObject>, String> {
+        // A later probe in this pass must not republish a sample already rejected here.
+        if self.changed_this_survey.contains(&reference.address) {
+            return Ok(None);
+        }
         match self.pumpkin(reader, reference) {
             Ok(object) => Ok(object),
+            Err(error) if self.changed_this_survey.contains(&reference.address) => Err(error),
             Err(error) => match self.array(reader, array_address, 131072)? {
                 Some(current) if current.contains(&reference.address) => Err(error),
                 _ => {
@@ -307,7 +355,9 @@ impl JadeSurvey {
                 object.instance.address.get() + const { EncodedOffset::new(0x308) }.get(),
             )?;
             if !orchid::pointer(asset) {
-                crate::log_info!("Pumpkin asset detached during availability capture; marker withheld.");
+                crate::log_info!(
+                    "Pumpkin asset detached during availability capture; marker withheld."
+                );
                 continue;
             }
             let asset_header = orchid::read::<64>(reader, self.pid, asset)?;
@@ -342,7 +392,9 @@ impl JadeSurvey {
             }
         }
         if unmatched != 0 {
-            crate::log_info!("Withheld {unmatched} pumpkin locations without a unique current prop association.");
+            crate::log_info!(
+                "Withheld {unmatched} pumpkin locations without a unique current prop association."
+            );
         }
         Ok(eligible)
     }
@@ -362,7 +414,10 @@ impl JadeSurvey {
             self.levels.clear();
             self.next_level = 0;
             self.world = Some(world);
+            self.changed_captures.clear();
         }
+        self.changed_this_survey.clear();
+        self.stable_this_survey.clear();
         let persistent = orchid::field(
             reader,
             self.pid,
@@ -418,7 +473,13 @@ impl JadeSurvey {
                 .filter(|cache| cache.signature == level_signature);
             // Membership changes schedule discovery; they do not invalidate unrelated live pumpkins.
             let changed = cache.map_or(true, |cache| cache.members != members);
-            let discover = changed && selected.contains(&level);
+            let retry = cache.is_some_and(|cache| {
+                cache
+                    .members
+                    .iter()
+                    .any(|address| self.changed_captures.contains_key(address))
+            });
+            let discover = (changed && selected.contains(&level)) || retry;
             let mut scanned_members = cache.map(|cache| cache.members.clone()).unwrap_or_default();
             let mut pumpkins: Vec<_> = cache
                 .map(|cache| {
@@ -458,6 +519,10 @@ impl JadeSurvey {
                             if !pumpkins.contains(&reference) {
                                 pumpkins.push(reference);
                             }
+                        }
+                    } else {
+                        if self.changed_captures.contains_key(&member) {
+                            self.stable_this_survey.insert(member);
                         }
                     }
                 }
@@ -530,6 +595,14 @@ impl JadeSurvey {
             return Err("Pumpkin world registry changed during survey.".into());
         }
         self.scanned_levels = self.levels.len();
+        self.changed_captures.retain(|address, _| {
+            let stable = self.stable_this_survey.contains(address);
+            if stable {
+                crate::log_info!("Pumpkin at 0x{:X}: capture stabilized or became ineligible; retry state cleared.", address.get());
+            }
+            !stable && self.levels.values().any(|cache| cache.members.contains(address))
+        });
+        objects.retain(|object| !self.changed_this_survey.contains(&object.instance.address));
         self.active_green_props(reader, world, persistent, persistent_signature, objects)
     }
 }

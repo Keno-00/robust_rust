@@ -6,6 +6,9 @@ workers_dev = true
 preview_urls = false
 
 [vars]
+APB_CB_SURFACE_VISUALS_DIGEST = "131f64083871a2c5c9309707ef08c413b5460e7fff9e900525446573d4be29b6"
+APB_SURFACE_VISUALS_DIGEST = "629c55d4153d5643298815d2acd0686c232190829e029571db9ad5328e50aa6a"
+APB_SURFACE_HITSOUND_DIGEST = "e01724a558f279c8d21fb80b38dd51a66084b7127e52fdeb254aea3c54050133"
 APB_CB_INFERENCE_DIGEST = "aaefc8f9908d1805570ff0bc20e428c6355b40db0571dcaaa2f6c6132ebde113"
 APB_CB_TRAINING_DIGEST = "2cc5b268986ab34dfe58f1d9abcdb4d84534b19d2f53d3a4550db40be645596e"
 APB_CB_DATASET_DIGEST = "5076e1337133817b8568f9a31b2c3eb4736f9a8780a2b863f6de0b10b9960e4b"
@@ -96,3 +99,14 @@ simple = { limit = 30, period = 60 }
 name = "FIRMWARE_RATE_LIMITER"
 namespace_id = "1008"
 simple = { limit = 10, period = 60 }
+
+# Launcher release storage is independent of encrypted licensed artifacts.
+# Provision this bucket before deploying this binding; do not make it public.
+[[r2_buckets]]
+binding = "RELEASE_ARTIFACTS"
+bucket_name = "verux-release-artifacts"
+
+[[ratelimits]]
+name = "RELEASE_RATE_LIMITER"
+namespace_id = "1009"
+simple = { limit = 600, period = 60 }

@@ -1,3 +1,5 @@
+import { launcherRequest, LauncherEnv } from "./launcher-delivery";
+import { libraryConfig, downloadGrant } from "./launcher-library";
 import {
   boundedText, diagnostic, DISCORD_BODY_MAX_BYTES, isJsonContentType,
   readLicenseBody, RequestFailure, UPSTREAM_BODY_MAX_BYTES, UPSTREAM_TIMEOUT_MS,
@@ -9,7 +11,7 @@ import { DurableObject } from "cloudflare:workers";
 import { AlgorithmEnv, deliverAlgorithm } from "./algorithm-delivery";
 import { FirmwareEnv, deliverFirmware } from "./firmware-delivery";
 
-export interface Env extends SigningEnv, AlgorithmEnv, FirmwareEnv {
+export interface Env extends SigningEnv, AlgorithmEnv, FirmwareEnv, LauncherEnv {
   LICENSE_COORDINATOR: DurableObjectNamespace;
   LICENSE_DB: D1Database;
   ACTIVATION_RATE_LIMITER: RateLimit;
@@ -423,10 +425,13 @@ function publicLicense(row: Record<string, unknown>) {
   };
 }
 
-async function activate(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+async function activate(request: Request, env: Env, ctx: ExecutionContext, library = false): Promise<Response> {
   const body = await readLicenseBody(request);
   const product = requestedProduct(body, env);
   if (!product) return json({ valid: false, status: "invalid_product", message: "A supported product_id is required." }, 400);
+  if (library && !(await libraryConfig(env)).products.some(p => p.id === product.id && p.access === "paid")) {
+    throw new RequestFailure(400,"invalid_library_product","This product is not enrolled in the library.");
+  }
   const licenseKey = stringAt(body, "license_key").trim();
   const installId = stringAt(body, "install_id");
   const clientVersion = stringAt(body, "client_version");
@@ -545,7 +550,22 @@ async function activate(request: Request, env: Env, ctx: ExecutionContext): Prom
   if (license.status !== "active") return json({ valid: false, status: "revoked", message: "This license has been revoked." }, 403);
   const usage = publicLicense(license);
   if (usage.remaining_seconds !== null && usage.remaining_seconds < 1) {
+    if (library) {
+      await env.LICENSE_DB.prepare("INSERT OR IGNORE INTO launcher_license_expiry (product_id, license_hash, expired_at) VALUES (?, ?, ?)")
+        .bind(product.id, licenseHash, Math.floor(now)).run();
+      const expiry = await env.LICENSE_DB.prepare("SELECT expired_at FROM launcher_license_expiry WHERE product_id=? AND license_hash=?")
+        .bind(product.id, licenseHash).first<{expired_at: number}>();
+      if (!expiry) throw new Error("License expiry record unavailable");
+      return json({valid:false, status:"usage_expired", message:"EXPIRED", expired_at:expiry.expired_at, hide_at:expiry.expired_at + 432000},403);
+    }
     return json({ valid: false, status: "usage_expired", message: "License usage time has been fully consumed.", usage }, 403);
+  }
+
+  if (library) {
+    const policy = (await libraryConfig(env)).products.find(p => p.id === product.id);
+    if (!policy || policy.access !== "paid") throw new Error("Paid library product not configured");
+    await env.LICENSE_DB.prepare("DELETE FROM launcher_license_expiry WHERE product_id=? AND license_hash=?").bind(product.id,licenseHash).run();
+    return json({valid:true,status:"valid",message:"VERIFIED",download_token:await downloadGrant(env,product.id,licenseHash)});
   }
 
   const sessionToken = randomToken();
@@ -665,7 +685,7 @@ export class LicenseCoordinator extends DurableObject<Env> {
         if (!product) throw new RequestFailure(400, "invalid_product", "A supported product_id is required.");
         const route = new URL(request.url).pathname;
         let licenseHash = "";
-        if (route === "/v1/activate") {
+        if (route === "/v1/activate" || route === "/v2/library/verify") {
           const key = stringAt(body, "license_key").trim();
           licenseHash = await hmacHex(this.env.LICENSE_HASH_SECRET, `license:${product.id}:${key}`);
           if (product.id === "verux.apb") {
@@ -707,7 +727,8 @@ export class LicenseCoordinator extends DurableObject<Env> {
               ? await deliverFirmware(body, this.env, tokenHash, Number(session.expires_at))
               : await deliverAlgorithm(body, this.env, tokenHash, Number(session.expires_at));
           }
-        } else response = route === "/v1/activate" ? await activate(request, this.env, this.ctx as unknown as ExecutionContext)
+        } else response = route === "/v2/library/verify" ? await activate(request, this.env, this.ctx as unknown as ExecutionContext, true)
+          : route === "/v1/activate" ? await activate(request, this.env, this.ctx as unknown as ExecutionContext)
           : route === "/v1/heartbeat" ? await heartbeat(request, this.env, this.ctx as unknown as ExecutionContext)
           : await deactivate(request, this.env);
         return response;
@@ -738,11 +759,12 @@ async function coordinated(request: Request, env: Env): Promise<Response> {
   if (!product) return json({ valid: false, status: "invalid_product", message: "A supported product_id is required." }, 400);
   const route = new URL(request.url).pathname;
   const signed = body.protocol_version === 2;
+  if (route === "/v2/library/verify") requireSignedRequest(body, env);
   if (signed) requireSignedRequest(body, env);
   // Validate before hashing/lookup/coordination so untrusted tokens cannot create
   // arbitrarily many Durable Objects. IP ceilings have already run at the edge.
   let licenseHash: string;
-  if (route === "/v1/activate") {
+  if (route === "/v1/activate" || route === "/v2/library/verify") {
     const key = stringAt(body, "license_key").trim();
     if (!key || key.length > 512 || !validSessionToken(stringAt(body, "install_id")) || !validClientVersion(stringAt(body, "client_version"))) {
       throw new RequestFailure(400, "invalid_request", "Missing or invalid activation fields.");
@@ -776,10 +798,11 @@ async function coordinated(request: Request, env: Env): Promise<Response> {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/launcher/")) return launcherRequest(request, env);
     if (request.method === "GET" && url.pathname === "/health") return json({ status: "ok" });
     if (request.method !== "POST") return json({ valid: false, status: "not_found", message: "Not found." }, 404);
     try {
-      const limiter = url.pathname === "/v1/activate" ? env.ACTIVATION_NETWORK_RATE_LIMITER
+      const limiter = url.pathname === "/v1/activate" || url.pathname === "/v2/library/verify" || url.pathname === "/v2/library/policy" ? env.ACTIVATION_NETWORK_RATE_LIMITER
         : url.pathname === "/v1/heartbeat" || url.pathname === "/v1/deactivate" || url.pathname === "/v2/algorithms/prepare" || url.pathname === "/v2/firmware/prepare" ? env.SESSION_NETWORK_RATE_LIMITER
         : url.pathname === "/discord/interactions" ? env.DISCORD_NETWORK_RATE_LIMITER : null;
       if (!limiter) return json({ valid: false, status: "not_found", message: "Not found." }, 404);
@@ -791,6 +814,12 @@ export default {
         return json({ valid: false, status: "rate_limited", message: "Too many requests. Please try again later." }, 429);
       }
       if (url.pathname === "/discord/interactions") return await handleDiscord(request, env);
+      if (url.pathname === "/v2/library/policy") {
+        const body = await readLicenseBody(request);
+        requireSignedRequest(body, env);
+        if (body.product_id !== "verux.launcher") throw new RequestFailure(400,"invalid_product","Invalid library request.");
+        return signResponse(json({valid:true,status:"valid",library:await libraryConfig(env)}),body,env,url.pathname);
+      }
       const interval = Number(env.HEARTBEAT_INTERVAL_SECONDS);
       const ttl = Number(env.SESSION_TTL_SECONDS);
       if (!Number.isSafeInteger(interval) || interval < 15 || interval > 300

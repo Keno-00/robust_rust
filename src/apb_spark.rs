@@ -29,6 +29,8 @@ pub struct ApbCursorSource {
     window: windows::Win32::Foundation::HWND,
     waiting_for_pointer: bool,
     unknown_since: Option<(u32, Instant)>,
+    trigger_suspended: bool,
+    hit_previous: Option<(EncodedAddress, EncodedAddress, f32)>,
 }
 
 impl ApbCursorSource {
@@ -64,6 +66,8 @@ impl ApbCursorSource {
             window,
             waiting_for_pointer: false,
             unknown_since: None,
+            trigger_suspended: false,
+            hit_previous: None,
         };
         match source.read_pointer()? {
             Some(object) => {
@@ -109,7 +113,53 @@ impl ApbCursorSource {
         }
     }
 
-    /// `None` means APB is in the background and any pending shot must be canceled.
+    pub fn reset_hit_event(&mut self) { self.hit_previous = None; }
+
+    pub fn red_hit_event(&mut self) -> Result<bool, String> {
+        let pointer = self.read_pointer()?;
+        if unsafe { GetForegroundWindow() } != self.window {
+            self.hit_previous = None;
+            return Ok(false);
+        }
+        let Some(object) = pointer else {
+            self.hit_previous = None;
+            self.report_waiting();
+            return Ok(false);
+        };
+        let mut header = [0u8; 8];
+        let mut values = [0u8; 20];
+        let mut after = [0u8; 8];
+        self.reader.read_exact(self.pid, object, &mut header)?;
+        self.reader.read_exact(self.pid, object + const { EncodedOffset::new(0x14c) }.get(), &mut values)?;
+        self.reader.read_exact(self.pid, object, &mut after)?;
+        if self.read_pointer()? != Some(object) || after != header {
+            self.hit_previous = None;
+            crate::log_info!("Hit sound cursor binding changed during sample; discarded.");
+            return Ok(false);
+        }
+        let floats: [f32; 5] = std::array::from_fn(|index|
+            f32::from_le_bytes(values[index*4..index*4+4].try_into().unwrap()));
+        let timer = floats[0];
+        if !floats.iter().all(|value| value.is_finite()) || !(-1.0..=1.1).contains(&timer) {
+            return Err("Hit sound memory values are invalid. Restart processing; inspect verux_apb.log if this persists.".into());
+        }
+        let fingerprint = u64::from_le_bytes(header);
+        let previous = self.hit_previous.replace((EncodedAddress::new(object)?, EncodedAddress::new(fingerprint)?, timer));
+        let Some((old_object, old_header, old_timer)) = previous else { return Ok(false); };
+        if old_object.get() != object || old_header.get() != fingerprint || timer <= 0.0 || timer <= old_timer + 0.05 {
+            return Ok(false);
+        }
+        let matches = |rgba: [f32; 4]| floats[1..].iter().zip(rgba).all(|(a, b)| (*a-b).abs() < 0.001);
+        if matches([1.0, 1.0, 1.0, 1.0]) { return Ok(false); }
+        if !matches([1.0, 0.0, 0.0, 1.0]) {
+            return Err(format!("Hit sound marker color is unclassified: {:?}. Processing stopped; inspect verux_apb.log.", &floats[1..]));
+        }
+        Ok(unsafe { GetForegroundWindow() } == self.window)
+    }
+
+    pub fn trigger_suspended(&self) -> bool { self.trigger_suspended }
+
+    /// `None` cancels pending shots when focus, binding, or cursor signal is unavailable.
     pub fn should_fire(&mut self, on_red: bool, on_green: bool) -> Result<Option<bool>, String> {
         let object = match self.read_pointer()? {
             Some(object) => object,
@@ -130,17 +180,30 @@ impl ApbCursorSource {
             return Ok(None);
         }
         let value = self.read_value(object)?;
+        if self.read_pointer()? != Some(object) {
+            self.unknown_since = None;
+            return Ok(None);
+        }
         match value {
+            0 => {
+                // Observed with HUD hidden during ADS; never classify it as a target.
+                self.unknown_since = None;
+                self.trigger_suspended = true;
+                Ok(None)
+            }
             RED => {
                 self.unknown_since = None;
+                self.trigger_suspended = false;
                 Ok(Some(on_red))
             }
             GREEN => {
                 self.unknown_since = None;
+                self.trigger_suspended = false;
                 Ok(Some(on_green))
             }
             WHITE => {
                 self.unknown_since = None;
+                self.trigger_suspended = false;
                 Ok(Some(false))
             }
             other => {

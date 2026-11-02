@@ -543,6 +543,14 @@ impl AtlasFrame {
         priority: OrbitOrder,
         filter: LanternFilter,
     ) -> Option<AtlasUnicornTarget> {
+        self.select_target(grab_width, grab_height, shift_x, shift_y, priority, filter, None)
+    }
+
+    pub fn target_in_fov(&self, radius: f32, shift_x: i32, shift_y: i32, priority: OrbitOrder, filter: LanternFilter) -> Option<AtlasUnicornTarget> {
+        self.select_target(0, 0, shift_x, shift_y, priority, filter, Some(f64::from(radius)))
+    }
+
+    fn select_target(&self, grab_width: i32, grab_height: i32, shift_x: i32, shift_y: i32, priority: OrbitOrder, filter: LanternFilter, fov: Option<f64>) -> Option<AtlasUnicornTarget> {
         let width = self.client_rect.right - self.client_rect.left;
         let height = self.client_rect.bottom - self.client_rect.top;
         self.points
@@ -560,16 +568,17 @@ impl AtlasFrame {
                 let right = bounds[2] - f64::from(width) / 2.0 - f64::from(shift_x);
                 let top = bounds[1] - f64::from(height) / 2.0;
                 let bottom = bounds[3] - f64::from(height) / 2.0;
-                if left > f64::from(grab_width) / 2.0
+                if fov.is_none() && (left > f64::from(grab_width) / 2.0
                     || right < -f64::from(grab_width) / 2.0
                     || top - f64::from(shift_y) > f64::from(grab_height) / 2.0
-                    || bottom - f64::from(shift_y) < -f64::from(grab_height) / 2.0
+                    || bottom - f64::from(shift_y) < -f64::from(grab_height) / 2.0)
                 {
                     return None;
                 }
                 let dx = (bounds[0] + bounds[2] - f64::from(width)) / 2.0;
                 let dy = (bounds[1] + bounds[3] - f64::from(height)) / 2.0;
                 let unicorn_distance = dx * dx + dy * dy;
+                if fov.is_some_and(|radius| !radius.is_finite() || radius <= 0.0 || unicorn_distance > radius * radius) { return None; }
                 let rank = match priority {
                     OrbitOrder::ClosestUnicorn => unicorn_distance,
                     OrbitOrder::ClosestDistance => point.distance_units.unwrap(),

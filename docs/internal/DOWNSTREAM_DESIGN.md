@@ -17,6 +17,7 @@ Saved choices are preferences, not authorization. Keep preferences when a parent
 | Color aim source | Color acquisition and Color ML recordings/models | Other-source models are not selectable |
 | Memory aim source | Mission filters, distance priority, recency gate, approximate body anchors, Memory ML | Other-source controls unavailable |
 | Trigger master + eligible source | Trigger-specific filters and activation | Hide children; no trigger worker |
+| Memory + Hit sound (General) | Supplied WAV selector and repeatable Preview action; local red-hit audio | Hide selector/preview when disabled; strip from effective config when Memory unavailable; no sound worker or hash requirement |
 | Independent screen visuals | Crosshair, FOV and screen-only elements | Do not tie these to memory merely because they share Visuals |
 | Closest Point vertical mode | Head/Neck/Torso/Feet subset | Hide subset; reject empty subset at Start |
 
@@ -38,7 +39,13 @@ One repository: Full includes Color and Memory; Color compiles without actual dr
 
 ## Categories still under discussion
 
-Weapon labels need verified pawn-to-equipped-weapon identity. Looking-at-you alerts need remote facing evidence, not the local camera. Hit/kill audio needs a trustworthy event and user-approved distinction between a local hit/kill and any player's death. WAV availability alone does not establish that event. Generic audio emitters are diagnostic until active playback semantics are confirmed.
+Approved SB Protect, visual grouping/appearance, profile migration, and source-correct Memory Aim FOV are recorded in [SB_PROTECT_VISUALS_20261019.md](SB_PROTECT_VISUALS_20261019.md). This is source-internal; do not package it.
+
+User-approved bounded Pumpkin identity-change revalidation is recorded in [PUMPKIN_CAPTURE_RESILIENCY_20261019.md](PUMPKIN_CAPTURE_RESILIENCY_20261019.md). Existing eligibility and identity/transport checks remain authoritative.
+
+User-approved Memory Triggerbot-only suspension for cursor value zero is recorded in [TRIGGER_HUD_SUSPENSION_20261019.md](TRIGGER_HUD_SUSPENSION_20261019.md). Zero remains unavailable rather than a target classification; other consumers continue and the UI/logs expose the suspension.
+
+Weapon labels need verified pawn-to-equipped-weapon identity. Looking-at-you alerts need remote facing evidence, not the local camera. Kill audio needs a trustworthy confirmed-kill event. Generic audio emitters are diagnostic until active playback semantics are confirmed.
 
 
 ## User decisions — 2026-10-19
@@ -46,3 +53,4 @@ Weapon labels need verified pawn-to-equipped-weapon identity. Looking-at-you ale
 - The memory capability checkbox belongs only in General and is labeled Memory. Monitor Resolution belongs in Computer Vision.
 - Hit sounds must use a verified direct memory signal distinguishing red/flesh hits from white hits. The user explicitly rejected pixel detection. Captured hitmarker images are diagnostic ground truth only; never introduce them as an automatic runtime fallback.
 - Initial remote-facing and nearby-player identity probes did not establish a looking-at-you address, display name, equipped model or ammo count. Keep those unresolved; do not promote a 180-degree visual mismatch into a simple sign correction without rotation evidence.
+- Red hit sounds were live-confirmed on 2026-10-19: cursor object timer +0x14C rises and decays; +0x150 four floats are RGBA. Red (1,0,0,1) plays, white (1,1,1,1) does not. General → Memory → Hit sound → Sound is independent of Aim/Trigger. Default off; embedded supplied WAVs retain the one-executable product. Focus, pause and binding changes reset the event baseline; read/playback failures stop processing visibly. The temporary confirmation logged 13 red sounds and 6 excluded white events; user confirmed correct playback. Rapid events between polls can be missed; this is hitmarker feedback, not a damage counter.

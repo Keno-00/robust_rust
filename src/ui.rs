@@ -34,6 +34,9 @@ pub enum BindingTarget {
 
 #[derive(Debug)]
 pub struct UiState {
+    visual_selection: usize,
+    risk_snapshot: Option<Vec<crate::sb_protect::Risk>>,
+    risk_enabled: bool,
     pub ml: crate::ml_ui::MlUi,
     pub config: ProfileConfig,
     pub logged_in: bool,
@@ -89,6 +92,9 @@ impl UiState {
             })
             .unwrap_or(0);
         Ok(Self {
+            visual_selection: 0,
+            risk_snapshot: None,
+            risk_enabled: false,
             ml: crate::ml_ui::MlUi::default(),
             lines_color: rgb_to_float(config.lines_color),
             halo_color: rgb_to_float(config.halo_color),
@@ -382,6 +388,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                         com_port,
                         exit: false,
                         thread_running: true,
+                        trigger_notice: None,
                         passport_error: None,
                         runtime_error: None,
                     }));
@@ -755,6 +762,13 @@ fn draw_start_bar(ui: &Ui, state: &mut UiState) {
                 if ui.button("Cancel") { state.preparation = None; }
             }
             if state.start_requested { imgui::ProgressBar::new(1.0).overlay_text("100%").build(ui); }
+            if let Some(notice) = state.runner_shared.as_ref().and_then(|shared| {
+                shared.lock().ok().and_then(|control| {
+                    control.thread_running.then(|| control.trigger_notice.clone()).flatten()
+                })
+            }) {
+                ui.text_colored([1.0, 0.8, 0.2, 1.0], notice);
+            }
             if ui.button("Exit") {
                 state.preparation = None;
                 state.prepared_runtime = None;
@@ -816,6 +830,24 @@ fn draw_tabs(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame) {
         TabItem::new(surface.text("u116")).build(ui, || draw_aurora(ui, state, surface));
         TabItem::new(surface.text("u117")).build(ui, || draw_general(ui, state, surface));
     });
+    let risks: Vec<_> = crate::sb_protect::IDS.iter().map(|id| crate::sb_protect::risk(&state.config, id)).collect();
+    if state.config.sb_protect && state.risk_enabled {
+        if let Some(before)=&state.risk_snapshot {
+            let changed: Vec<_>=crate::sb_protect::IDS.iter().zip(before.iter().zip(&risks)).filter_map(|(id,(a,b))| {
+                (*a==crate::sb_protect::Risk::White && *b==crate::sb_protect::Risk::Red).then_some(*id)
+            }).collect();
+            if !changed.is_empty() {
+                crate::log_info!("SB Protect: user configuration changed from white to red: {}.",changed.join(", "));
+                ui.open_popup(surface.text("u147"));
+            }
+        }
+    }
+    state.risk_enabled = state.config.sb_protect;
+    state.risk_snapshot = Some(risks);
+    ui.modal_popup_config(surface.text("u147")).always_auto_resize(true).build(|| {
+        ui.text(surface.text("u148"));
+        if ui.button(surface.text("u149")) { crate::log_info!("SB Protect warning acknowledged."); ui.close_current_popup(); }
+    });
 }
 
 fn binding_button(ui: &Ui, state: &mut UiState, target: BindingTarget, label: &str) {
@@ -861,14 +893,6 @@ fn draw_computer_vision(ui: &Ui, state: &mut UiState, surface: &crate::petal_tex
     }
 }
 
-fn edit_rgb(ui: &Ui, label: &str, color: &mut Rgb) {
-    let mut value = rgb_to_float(*color);
-    if ui.color_edit3(label, &mut value) {
-        *color = float_to_rgb(value);
-    }
-}
-
-// Poll outside the selected tab so switching tabs never leaves a stale PID.
 fn poll_memory_status(state: &mut UiState) {
     if let Some(receiver) = &state.memory_status_result {
         match receiver.try_recv() {
@@ -944,110 +968,174 @@ fn draw_memory(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame)
     ui.text_wrapped(format!("APB: {}", state.apb_process_status));
 }
 
-fn draw_aurora_marks(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame) {
-    labeled_separator(ui, surface.text("u096"));
-    ui.checkbox(surface.text("u096"), &mut state.config.lanterns);
-    binding_button(ui, state, BindingTarget::Lanterns, surface.text("u097"));
-    let mut style = usize::from(state.config.aurora_style == AuroraStyle::Dots);
-    if ui.combo_simple_string(surface.text("u098"), &mut style, &[surface.text("u099"), surface.text("u100")]) {
-        state.config.aurora_style = if style == 0 {
-            AuroraStyle::Boxes
-        } else {
-            AuroraStyle::Dots
-        };
-    }
-    ui.checkbox(surface.text("u101"), &mut state.config.show_distance);
-    ui.text(surface.text("u102"));
-    ui.radio_button(
-        surface.text("u045"),
-        &mut state.config.lantern_filter,
-        LanternFilter::Opponents,
-    );
-    ui.same_line();
-    ui.radio_button(
-        surface.text("u046"),
-        &mut state.config.lantern_filter,
-        LanternFilter::MissionPlayers,
-    );
-    ui.same_line();
-    ui.radio_button(
-        surface.text("u047"),
-        &mut state.config.lantern_filter,
-        LanternFilter::AllPlayers,
-    );
-    edit_rgb(ui, surface.text("u103"), &mut state.config.opponent_color);
-    edit_rgb(ui, surface.text("u104"), &mut state.config.teammate_color);
-    edit_rgb(
-        ui,
-        surface.text("u105"),
-        &mut state.config.outside_mission_color,
-    );
-    edit_rgb(ui, surface.text("u106"), &mut state.config.unknown_color);
-    ui.checkbox(surface.text("u133"), &mut state.config.jade);
-    ui.checkbox(surface.text("u134"), &mut state.config.wisps);
-}
-
 fn draw_unicorn(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame) {
     labeled_separator(ui, surface.text("u081"));
-    ui.checkbox(surface.text("u082"), &mut state.config.unicorn);
-    if !state.config.unicorn { return; }
+    crate::sb_protect::draw(
+        ui,
+        state.config.sb_protect,
+        crate::sb_protect::risk(&state.config, "u082"),
+        || ui.checkbox(surface.text("u082"), &mut state.config.unicorn),
+    );
+    if !state.config.unicorn {
+        return;
+    }
     let memory = state.config.eligibility().memory;
-    radio_coordinate_source(ui, surface, surface.text("u083"), &mut state.config.coordinate_source, memory);
-    if !state.config.eligibility().aim { return; }
-    binding_button(ui, state, BindingTarget::Unicorn, surface.text("u084"));
-    radio_unicorn_activation(ui, surface, surface.text("u085"), &mut state.config.unicorn_base_activation);
+    crate::sb_protect::draw(
+        ui,
+        state.config.sb_protect,
+        crate::sb_protect::risk(&state.config, "u083"),
+        || {
+            radio_coordinate_source(
+                ui,
+                surface,
+                surface.text("u083"),
+                &mut state.config.coordinate_source,
+                memory,
+                state.config.sb_protect,
+            )
+        },
+    );
+    if !state.config.eligibility().aim {
+        return;
+    }
+    if state.config.eligibility().memory_aim {
+        ui.slider(
+            surface.text("u189"),
+            1.0,
+            4000.0,
+            &mut state.config.memory_aim_fov,
+        );
+    }
+    crate::sb_protect::draw(
+        ui,
+        state.config.sb_protect,
+        crate::sb_protect::risk(&state.config, "u084"),
+        || binding_button(ui, state, BindingTarget::Unicorn, surface.text("u084")),
+    );
+    crate::sb_protect::draw(
+        ui,
+        state.config.sb_protect,
+        crate::sb_protect::risk(&state.config, "u085"),
+        || {
+            radio_unicorn_activation(
+                ui,
+                surface,
+                surface.text("u085"),
+                &mut state.config.unicorn_base_activation,
+                state.config.sb_protect,
+                state.config.unicorn_key,
+            )
+        },
+    );
 
     labeled_separator(ui, surface.text("u086"));
     if state.config.eligibility().memory_aim {
-        ui.checkbox(surface.text("u087"), &mut state.config.prism_only);
-    let mut filter = match state.config.orbit_filter {
-        LanternFilter::Opponents => 0,
-        LanternFilter::MissionPlayers => 1,
-        LanternFilter::AllPlayers => 2,
-    };
-    if ui.combo_simple_string(
-        surface.text("u088"),
-        &mut filter,
-        &[surface.text("u045"), surface.text("u046"), surface.text("u047")],
-    ) {
-        state.config.orbit_filter = match filter {
-            0 => LanternFilter::Opponents,
-            1 => LanternFilter::MissionPlayers,
-            _ => LanternFilter::AllPlayers,
+        crate::sb_protect::draw(
+            ui,
+            state.config.sb_protect,
+            crate::sb_protect::risk(&state.config, "u087"),
+            || ui.checkbox(surface.text("u087"), &mut state.config.prism_only),
+        );
+        let mut filter = match state.config.orbit_filter {
+            LanternFilter::Opponents => 0,
+            LanternFilter::MissionPlayers => 1,
+            LanternFilter::AllPlayers => 2,
         };
-    }
-    let mut priority = usize::from(state.config.orbit_order == OrbitOrder::ClosestDistance);
-    if ui.combo_simple_string(
-        surface.text("u090"),
-        &mut priority,
-        &[surface.text("u091"), surface.text("u092")],
-    ) {
-        state.config.orbit_order = if priority == 0 {
-            OrbitOrder::ClosestUnicorn
-        } else {
-            OrbitOrder::ClosestDistance
-        };
-    }
+        if crate::sb_protect::draw(
+            ui,
+            state.config.sb_protect,
+            crate::sb_protect::risk(&state.config, "u088"),
+            || {
+                ui.combo_simple_string(
+                    surface.text("u088"),
+                    &mut filter,
+                    &[
+                        surface.text("u045"),
+                        surface.text("u046"),
+                        surface.text("u047"),
+                    ],
+                )
+            },
+        ) {
+            state.config.orbit_filter = match filter {
+                0 => LanternFilter::Opponents,
+                1 => LanternFilter::MissionPlayers,
+                _ => LanternFilter::AllPlayers,
+            };
+        }
+        let mut priority = usize::from(state.config.orbit_order == OrbitOrder::ClosestDistance);
+        if ui.combo_simple_string(
+            surface.text("u090"),
+            &mut priority,
+            &[surface.text("u091"), surface.text("u092")],
+        ) {
+            state.config.orbit_order = if priority == 0 {
+                OrbitOrder::ClosestUnicorn
+            } else {
+                OrbitOrder::ClosestDistance
+            };
+        }
     }
     {
         use crate::config::VerticalTracking;
-        let choices = [VerticalTracking::Current, VerticalTracking::NoY, VerticalTracking::Head,
-            VerticalTracking::Neck, VerticalTracking::Torso, VerticalTracking::Feet, VerticalTracking::ClosestPoint];
-        let labels = [surface.text("u137"), surface.text("u138"), surface.text("u139"),
-            surface.text("u140"), surface.text("u141"), surface.text("u142"), surface.text("u143")];
-        let preview = choices.iter().position(|mode| *mode == state.config.vertical_tracking).unwrap_or(0);
-        if let Some(_combo) = ui.begin_combo(surface.text("u136"), labels[preview]) {
+        let choices = [
+            VerticalTracking::Current,
+            VerticalTracking::NoY,
+            VerticalTracking::Head,
+            VerticalTracking::Neck,
+            VerticalTracking::Torso,
+            VerticalTracking::Feet,
+            VerticalTracking::ClosestPoint,
+        ];
+        let labels = [
+            surface.text("u137"),
+            surface.text("u138"),
+            surface.text("u139"),
+            surface.text("u140"),
+            surface.text("u141"),
+            surface.text("u142"),
+            surface.text("u143"),
+        ];
+        let preview = choices
+            .iter()
+            .position(|mode| *mode == state.config.vertical_tracking)
+            .unwrap_or(0);
+        if let Some(_combo) = crate::sb_protect::draw(
+            ui,
+            state.config.sb_protect,
+            crate::sb_protect::risk(&state.config, "u136"),
+            || ui.begin_combo(surface.text("u136"), labels[preview]),
+        ) {
             for (index, mode) in choices.iter().enumerate() {
-                let _disabled = ui.begin_disabled(index > 1 && !state.config.eligibility().memory_aim);
-                if ui.selectable_config(labels[index]).selected(*mode == state.config.vertical_tracking).build() {
+                let _disabled =
+                    ui.begin_disabled(index > 1 && !state.config.eligibility().memory_aim);
+                let mut preview_config = state.config.clone();
+                preview_config.vertical_tracking = *mode;
+                if crate::sb_protect::draw(
+                    ui,
+                    state.config.sb_protect,
+                    crate::sb_protect::risk(&preview_config, "u136"),
+                    || {
+                        ui.selectable_config(labels[index])
+                            .selected(*mode == state.config.vertical_tracking)
+                            .build()
+                    },
+                ) {
                     state.config.vertical_tracking = *mode;
                 }
             }
         }
-        if state.config.eligibility().memory_aim && state.config.vertical_tracking == VerticalTracking::ClosestPoint {
+        if state.config.eligibility().memory_aim
+            && state.config.vertical_tracking == VerticalTracking::ClosestPoint
+        {
             let _id = ui.push_id("vertical_points");
             for (index, label) in labels[2..6].iter().enumerate() {
-                ui.checkbox(*label, &mut state.config.vertical_points[index]);
+                crate::sb_protect::draw(
+                    ui,
+                    state.config.sb_protect,
+                    crate::sb_protect::risk(&state.config, "u136"),
+                    || ui.checkbox(*label, &mut state.config.vertical_points[index]),
+                );
             }
         }
     }
@@ -1056,7 +1144,6 @@ fn draw_unicorn(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame
         ui.input_int(surface.text("u095"), &mut state.config.unicorn_distance)
             .build();
     }
-
 }
 
 fn draw_humanize(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame) {
@@ -1078,9 +1165,7 @@ fn draw_humanize_controls(ui: &Ui, state: &mut UiState, surface: &crate::petal_t
             }
             if let Some(handle) = state.runner_thread.take() {
                 if handle.join().is_err() {
-                    show_error(
-                        surface.text("u063"),
-                    );
+                    show_error(surface.text("u063"));
                     return;
                 }
             }
@@ -1093,14 +1178,54 @@ fn draw_humanize_controls(ui: &Ui, state: &mut UiState, surface: &crate::petal_t
         Err(error) => show_error(&error),
     }
     labeled_separator(ui, surface.text("u064"));
-    ui.checkbox(surface.text("u065"), &mut state.config.beesmas);
+    crate::sb_protect::draw(
+        ui,
+        state.config.sb_protect,
+        crate::sb_protect::risk(&state.config, "u065"),
+        || ui.checkbox(surface.text("u065"), &mut state.config.beesmas),
+    );
     if state.config.beesmas {
-        radio_beesmas_type(ui, surface, surface.text("u066"), &mut state.config.beesmas_type);
-        ui.slider(surface.text("u067"), 1.0, 10.0, &mut state.config.beesmas_value);
+        crate::sb_protect::draw(
+            ui,
+            state.config.sb_protect,
+            crate::sb_protect::risk(&state.config, "u066"),
+            || {
+                radio_beesmas_type(
+                    ui,
+                    surface,
+                    surface.text("u066"),
+                    &mut state.config.beesmas_type,
+                    state.config.sb_protect,
+                )
+            },
+        );
+        crate::sb_protect::draw(
+            ui,
+            state.config.sb_protect,
+            crate::sb_protect::risk(&state.config, "u067"),
+            || {
+                ui.slider(
+                    surface.text("u067"),
+                    1.0,
+                    10.0,
+                    &mut state.config.beesmas_value,
+                )
+            },
+        );
     }
-    ui.checkbox(surface.text("u068"), &mut state.config.drift_guard);
+    crate::sb_protect::draw(
+        ui,
+        state.config.sb_protect,
+        crate::sb_protect::risk(&state.config, "u068"),
+        || ui.checkbox(surface.text("u068"), &mut state.config.drift_guard),
+    );
     let mut tide_enabled = state.config.tide_time_ms > 0;
-    if ui.checkbox(surface.text("u069"), &mut tide_enabled) {
+    if crate::sb_protect::draw(
+        ui,
+        state.config.sb_protect,
+        crate::sb_protect::risk(&state.config, "u069"),
+        || ui.checkbox(surface.text("u069"), &mut tide_enabled),
+    ) {
         if tide_enabled {
             state.config.tide_time_ms = 280;
         } else {
@@ -1108,33 +1233,114 @@ fn draw_humanize_controls(ui: &Ui, state: &mut UiState, surface: &crate::petal_t
         }
     }
     if tide_enabled {
-        ui.input_scalar(surface.text("u070"), &mut state.config.tide_time_ms)
-            .build();
-        ui.input_scalar(surface.text("u071"), &mut state.config.tide_idle_reset_ms)
-            .build();
-        radio_ramp_apply(ui, surface, surface.text("u072"), &mut state.config.tide_apply);
-        radio_ease(ui, surface, surface.text("u073"), &mut state.config.tide_ease);
+        crate::sb_protect::draw(
+            ui,
+            state.config.sb_protect,
+            crate::sb_protect::risk(&state.config, "u070"),
+            || {
+                ui.input_scalar(surface.text("u070"), &mut state.config.tide_time_ms)
+                    .build()
+            },
+        );
+        crate::sb_protect::draw(
+            ui,
+            state.config.sb_protect,
+            crate::sb_protect::risk(&state.config, "u071"),
+            || {
+                ui.input_scalar(surface.text("u071"), &mut state.config.tide_idle_reset_ms)
+                    .build()
+            },
+        );
+        radio_ramp_apply(
+            ui,
+            surface,
+            surface.text("u072"),
+            &mut state.config.tide_apply,
+        );
+        radio_ease(
+            ui,
+            surface,
+            surface.text("u073"),
+            &mut state.config.tide_ease,
+        );
     }
 
     labeled_separator(ui, surface.text("u074"));
-    ui.checkbox(surface.text("u075"), &mut state.config.velvet_charge);
+    crate::sb_protect::draw(
+        ui,
+        state.config.sb_protect,
+        crate::sb_protect::risk(&state.config, "u075"),
+        || ui.checkbox(surface.text("u075"), &mut state.config.velvet_charge),
+    );
     if state.config.velvet_charge {
         ui.input_int(surface.text("u076"), &mut state.config.velvet_distance)
             .build();
-        ui.input_scalar(surface.text("u077"), &mut state.config.velvet_build_ms)
-            .build();
-        radio_prox_effect(ui, surface, surface.text("u078"), &mut state.config.velvet_effect);
-        radio_ease(ui, surface, surface.text("u079"), &mut state.config.velvet_ease);
+        crate::sb_protect::draw(
+            ui,
+            state.config.sb_protect,
+            crate::sb_protect::risk(&state.config, "u077"),
+            || {
+                ui.input_scalar(surface.text("u077"), &mut state.config.velvet_build_ms)
+                    .build()
+            },
+        );
+        crate::sb_protect::draw(
+            ui,
+            state.config.sb_protect,
+            crate::sb_protect::risk(&state.config, "u078"),
+            || {
+                radio_prox_effect(
+                    ui,
+                    surface,
+                    surface.text("u078"),
+                    &mut state.config.velvet_effect,
+                )
+            },
+        );
+        radio_ease(
+            ui,
+            surface,
+            surface.text("u079"),
+            &mut state.config.velvet_ease,
+        );
     }
 }
 
 fn draw_pegasus(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame) {
-    ui.checkbox(surface.text("u053"), &mut state.config.pegasus);
-    if !state.config.pegasus { return; }
+    crate::sb_protect::draw(
+        ui,
+        state.config.sb_protect,
+        crate::sb_protect::risk(&state.config, "u053"),
+        || ui.checkbox(surface.text("u053"), &mut state.config.pegasus),
+    );
+    if !state.config.pegasus {
+        return;
+    }
     let memory = state.config.eligibility().memory;
-    radio_coordinate_source(ui, surface, surface.text("u054"), &mut state.config.pegasus_source, memory);
-    if !state.config.eligibility().trigger { return; }
-    binding_button(ui, state, BindingTarget::Pegasus, surface.text("u055"));
+    crate::sb_protect::draw(
+        ui,
+        state.config.sb_protect,
+        crate::sb_protect::risk(&state.config, "u054"),
+        || {
+            radio_coordinate_source(
+                ui,
+                surface,
+                surface.text("u054"),
+                &mut state.config.pegasus_source,
+                memory,
+                state.config.sb_protect,
+            )
+        },
+    );
+    if !state.config.eligibility().trigger {
+        return;
+    }
+    crate::sb_protect::draw(
+        ui,
+        state.config.sb_protect,
+        crate::sb_protect::risk(&state.config, "u055"),
+        || binding_button(ui, state, BindingTarget::Pegasus, surface.text("u055")),
+    );
     if state.config.eligibility().memory_trigger {
         if ui.checkbox(surface.text("u056"), &mut state.config.pegasus_on_red)
             && !state.config.pegasus_on_red
@@ -1150,17 +1356,42 @@ fn draw_pegasus(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame
             state.config.pegasus_on_red = true;
         }
     }
-    radio_pegasus_activation(
-        ui, surface,
-        surface.text("u058"),
-        &mut state.config.pegasus_activation,
+    crate::sb_protect::draw(
+        ui,
+        state.config.sb_protect,
+        crate::sb_protect::risk(&state.config, "u058"),
+        || {
+            radio_pegasus_activation(
+                ui,
+                surface,
+                surface.text("u058"),
+                &mut state.config.pegasus_activation,
+                state.config.sb_protect,
+                state.config.pegasus_key,
+            )
+        },
     );
     if state.config.eligibility().aim && state.config.pegasus_unicorn_supported() {
-        ui.checkbox(surface.text("u059"), &mut state.config.pegasus_activates_unicorn);
+        ui.checkbox(
+            surface.text("u059"),
+            &mut state.config.pegasus_activates_unicorn,
+        );
     }
     TabBar::new(surface.text("u060")).build(ui, || {
         TabItem::new(surface.text("u061")).build(ui, || {
-            ui.slider(surface.text("u061"), 1, 1000, &mut state.config.pegasus_delay_ms);
+            crate::sb_protect::draw(
+                ui,
+                state.config.sb_protect,
+                crate::sb_protect::risk(&state.config, "u061"),
+                || {
+                    ui.slider(
+                        surface.text("u061"),
+                        1,
+                        1000,
+                        &mut state.config.pegasus_delay_ms,
+                    )
+                },
+            );
         });
     });
 }
@@ -1172,65 +1403,366 @@ fn draw_aurora(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame)
 }
 
 fn draw_aurora_controls(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame) {
-    labeled_separator(ui, surface.text("u032"));
-    ui.checkbox(surface.text("u032"), &mut state.config.aurora_enabled);
-    binding_button(ui, state, BindingTarget::Aurora, surface.text("u033"));
-    ui.checkbox(surface.text("u034"), &mut state.config.halo);
-    if ui.color_edit3(surface.text("u035"), &mut state.halo_color) {
-        state.config.halo_color = float_to_rgb(state.halo_color);
+    use crate::visual_style::*;
+    if let Some(error) = &state.config.visual_style_error {
+        ui.text_wrapped(error);
+        return;
     }
-    if state.config.eligibility().aim {
-    ui.checkbox(surface.text("u036"), &mut state.config.unicorn_target_box);
-    edit_rgb(ui, surface.text("u037"), &mut state.config.unicorn_target_color);
-    ui.checkbox(surface.text("u038"), &mut state.config.lines);
-    let mut origin = usize::from(state.config.unicorn_line_origin == UnicornLineOrigin::Top);
-    if ui.combo_simple_string(surface.text("u039"), &mut origin, &[surface.text("u040"), surface.text("u041")]) {
-        state.config.unicorn_line_origin = if origin == 0 {
-            UnicornLineOrigin::Center
+    labeled_separator(ui, surface.text("u152"));
+    let e = state.config.eligibility();
+    labeled_separator(ui, surface.text("u150"));
+    {
+        crate::sb_protect::draw(
+            ui,
+            state.config.sb_protect,
+            crate::sb_protect::risk(&state.config, "u032"),
+            || ui.checkbox(surface.text("u032"), &mut state.config.aurora_enabled),
+        );
+        if state.config.aurora_enabled {
+            binding_button(ui, state, BindingTarget::Aurora, surface.text("u033"));
+            crate::sb_protect::draw(
+                ui,
+                state.config.sb_protect,
+                crate::sb_protect::risk(&state.config, "u034"),
+                || ui.checkbox(surface.text("u034"), &mut state.config.halo),
+            );
+            let _disabled = ui.begin_disabled(!e.aim);
+            crate::sb_protect::draw(
+                ui,
+                state.config.sb_protect,
+                crate::sb_protect::risk(&state.config, "u036"),
+                || ui.checkbox(surface.text("u036"), &mut state.config.unicorn_target_box),
+            );
+            crate::sb_protect::draw(
+                ui,
+                state.config.sb_protect,
+                crate::sb_protect::risk(&state.config, "u038"),
+                || ui.checkbox(surface.text("u038"), &mut state.config.lines),
+            );
+        }
+    }
+    if e.memory {
+        labeled_separator(ui, surface.text("u151"));
+        crate::sb_protect::draw(
+            ui,
+            state.config.sb_protect,
+            crate::sb_protect::risk(&state.config, "u096"),
+            || ui.checkbox(surface.text("u096"), &mut state.config.lanterns),
+        );
+        if state.config.lanterns {
+            binding_button(ui, state, BindingTarget::Lanterns, surface.text("u097"));
+        }
+        crate::sb_protect::draw(
+            ui,
+            state.config.sb_protect,
+            crate::sb_protect::risk(&state.config, "u133"),
+            || ui.checkbox(surface.text("u133"), &mut state.config.jade),
+        );
+        crate::sb_protect::draw(
+            ui,
+            state.config.sb_protect,
+            crate::sb_protect::risk(&state.config, "u134"),
+            || ui.checkbox(surface.text("u134"), &mut state.config.wisps),
+        );
+        labeled_separator(ui, surface.text("u043"));
+        crate::sb_protect::draw(
+            ui,
+            state.config.sb_protect,
+            crate::sb_protect::risk(&state.config, "u043"),
+            || ui.checkbox(surface.text("u043"), &mut state.config.comet),
+        );
+        if state.config.comet {
+            let _id = ui.push_id("comet_jade");
+            crate::sb_protect::draw(
+                ui,
+                state.config.sb_protect,
+                crate::sb_protect::risk(&state.config, "v_radar_objects"),
+                || {
+                    ui.checkbox(surface.text("u133"), &mut state.config.comet_jade);
+                },
+            );
+        }
+    }
+    let enabled = [
+        state.config.aurora_enabled && state.config.halo,
+        e.aim && state.config.aurora_enabled && state.config.unicorn_target_box,
+        e.aim && state.config.aurora_enabled && state.config.lines,
+        e.memory && state.config.lanterns,
+        e.memory && state.config.jade,
+        e.memory && state.config.wisps,
+        e.memory && state.config.comet,
+    ];
+    let names = ["u034", "u036", "u038", "u096", "u133", "u134", "u043"];
+    let Some(first) = enabled.iter().position(|value| *value) else {
+        return;
+    };
+    if !enabled[state.visual_selection] {
+        state.visual_selection = first;
+    }
+    labeled_separator(ui, surface.text("u153"));
+    let _width = ui.push_item_width(210.0);
+    if let Some(_combo) = ui.begin_combo(
+        surface.text("u154"),
+        surface.text(names[state.visual_selection]),
+    ) {
+        for (i, active) in enabled.iter().enumerate() {
+            if *active
+                && ui
+                    .selectable_config(surface.text(names[i]))
+                    .selected(state.visual_selection == i)
+                    .build()
+            {
+                state.visual_selection = i;
+            }
+        }
+    }
+    let selected = state.visual_selection;
+    if let Some(_combo) = ui.begin_combo(surface.text("u188"), "") {
+        for (i, active) in enabled.iter().enumerate() {
+            if *active && i != selected && ui.selectable(surface.text(names[i])) {
+                let source = state.config.visual_styles[i];
+                let target = &mut state.config.visual_styles[selected];
+                // Copy appearance only; preserve geometry and source-specific settings.
+                target.color = source.color;
+                target.mode = source.mode;
+                target.opacity = source.opacity;
+                target.width = source.width;
+                target.outline = source.outline;
+                target.outline_width = source.outline_width;
+                target.outline_color = source.outline_color;
+                target.fill = source.fill;
+                target.fill_opacity = source.fill_opacity;
+                target.speed = source.speed;
+                target.saturation = source.saturation;
+                target.brightness = source.brightness;
+                target.palette = source.palette;
+                target.minimum_opacity = source.minimum_opacity;
+                target.role_colors = source.role_colors
+                    && matches!(selected, PLAYERS | PUMPKINS | PROJECTILES | RADAR);
+            }
+        }
+    }
+    let style = &mut state.config.visual_styles[selected];
+    ui.combo_simple_string(
+        surface.text("u155"),
+        &mut style.mode,
+        &[
+            surface.text("u156"),
+            surface.text("u157"),
+            surface.text("u158"),
+        ],
+    );
+    if matches!(selected, PLAYERS | PUMPKINS | PROJECTILES | RADAR) && style.mode != 1 {
+        let mut palette = usize::from(style.role_colors);
+        if ui.combo_simple_string(
+            surface.text("u181"),
+            &mut palette,
+            &[
+                surface.text("u182"),
+                surface.text(if matches!(selected, PUMPKINS | PROJECTILES) {
+                    "u191"
+                } else {
+                    "u183"
+                }),
+            ],
+        ) {
+            style.role_colors = palette == 1;
+        }
+    }
+    if style.mode != 1 && !style.role_colors {
+        ui.color_edit3(surface.text("u159"), &mut style.color);
+    }
+    ui.slider(surface.text("u160"), 0.0, 1.0, &mut style.opacity);
+    style.minimum_opacity = style.minimum_opacity.min(style.opacity);
+    if style.mode > 0 {
+        ui.slider(surface.text("u170"), 0.05, 5.0, &mut style.speed);
+    }
+    if style.mode == 1 {
+        ui.slider(surface.text("u171"), 0.0, 1.0, &mut style.saturation);
+        ui.slider(surface.text("u172"), 0.0, 1.0, &mut style.brightness);
+    }
+    if style.mode == 2 {
+        ui.slider(
+            surface.text("u173"),
+            0.0,
+            style.opacity,
+            &mut style.minimum_opacity,
+        );
+    }
+    ui.slider(surface.text("u161"), 1, 8, &mut style.width);
+    ui.combo_simple_string(
+        surface.text("u162"),
+        &mut style.outline,
+        &[
+            surface.text("u163"),
+            surface.text("u164"),
+            surface.text("u165"),
+        ],
+    );
+    if style.outline > 0 {
+        ui.slider(surface.text("u166"), 1, 5, &mut style.outline_width);
+        if style.outline == 2 {
+            ui.color_edit3(surface.text("u167"), &mut style.outline_color);
+        }
+    }
+    if selected != LINES {
+        ui.checkbox(surface.text("u168"), &mut style.fill);
+        if style.fill {
+            ui.slider(surface.text("u169"), 0.0, 1.0, &mut style.fill_opacity);
+        }
+    }
+    if matches!(selected, TARGET | PLAYERS) {
+        ui.combo_simple_string(
+            surface.text("u174"),
+            &mut style.shape,
+            &[
+                surface.text("u175"),
+                surface.text("u176"),
+                surface.text("u177"),
+            ],
+        );
+        if style.shape == 2 {
+            ui.slider(surface.text("u178"), 0.05, 0.5, &mut style.corner_length);
+        }
+    }
+    if matches!(selected, PLAYERS | PUMPKINS | PROJECTILES | RADAR) {
+        if selected != PLAYERS || style.shape == 1 {
+            ui.slider(surface.text("u179"), 1, 30, &mut style.marker_size);
+        }
+        if selected != RADAR {
+            ui.slider(surface.text("u180"), 0.0, 2000.0, &mut style.max_distance);
+        }
+    }
+    // Keep legacy renderer metadata synchronized with the selected appearance.
+    if selected == PLAYERS {
+        state.config.aurora_style = if style.shape == 1 {
+            AuroraStyle::Dots
         } else {
-            UnicornLineOrigin::Top
+            AuroraStyle::Boxes
         };
     }
-    if ui.color_edit3(surface.text("u042"), &mut state.lines_color) {
-        state.config.lines_color = float_to_rgb(state.lines_color);
-    }
-    }
-    if !state.config.eligibility().memory { return; }
-    draw_aurora_marks(ui, state, surface);
-    labeled_separator(ui, surface.text("u043"));
-    ui.checkbox(surface.text("u043"), &mut state.config.comet);
-    if state.config.comet {
-        {
-            let _id = ui.push_id("comet_jade");
-            ui.checkbox(surface.text("u133"), &mut state.config.comet_jade);
+    if selected == LINES {
+        let mut origin = usize::from(state.config.unicorn_line_origin == UnicornLineOrigin::Top);
+        if ui.combo_simple_string(
+            surface.text("u039"),
+            &mut origin,
+            &[surface.text("u040"), surface.text("u041")],
+        ) {
+            state.config.unicorn_line_origin = if origin == 0 {
+                UnicornLineOrigin::Center
+            } else {
+                UnicornLineOrigin::Top
+            };
         }
-        let mut filter = match state.config.comet_filter {
+        ui.combo_simple_string(
+            surface.text("u184"),
+            &mut style.endpoint,
+            &[
+                surface.text("u185"),
+                surface.text("u186"),
+                surface.text("u187"),
+            ],
+        );
+    }
+    if matches!(selected, PLAYERS | RADAR) {
+        let filter = if selected == PLAYERS {
+            &mut state.config.lantern_filter
+        } else {
+            &mut state.config.comet_filter
+        };
+        let mut value = match *filter {
             LanternFilter::Opponents => 0,
             LanternFilter::MissionPlayers => 1,
             LanternFilter::AllPlayers => 2,
         };
-        if ui.combo_simple_string(surface.text("u044"), &mut filter, &[surface.text("u045"), surface.text("u046"), surface.text("u047")]) {
-            state.config.comet_filter = [LanternFilter::Opponents, LanternFilter::MissionPlayers, LanternFilter::AllPlayers][filter];
+        if ui.combo_simple_string(
+            surface.text("u044"),
+            &mut value,
+            &[
+                surface.text("u045"),
+                surface.text("u046"),
+                surface.text("u047"),
+            ],
+        ) {
+            *filter = [
+                LanternFilter::Opponents,
+                LanternFilter::MissionPlayers,
+                LanternFilter::AllPlayers,
+            ][value];
         }
-        ui.combo_simple_string(surface.text("u048"), &mut state.config.comet_placement, &crate::comet::PLACEMENTS);
-        ui.slider(surface.text("u049"), crate::comet::MIN_SCALE, crate::comet::MAX_SCALE, &mut state.config.comet_scale);
-        if state.config.comet_placement == crate::comet::CUSTOM_PLACEMENT {
-            ui.input_float(surface.text("u050"), &mut state.config.comet_x_percent).build();
-            ui.input_float(surface.text("u051"), &mut state.config.comet_y_percent).build();
-            for value in [&mut state.config.comet_x_percent, &mut state.config.comet_y_percent] {
-                if !value.is_finite() { *value = 50.0; }
-                *value = value.clamp(0.0, 100.0);
+        if style.role_colors && style.mode != 1 {
+            for (index, id) in ["u103", "u104", "u105", "u106"].iter().enumerate() {
+                ui.color_edit3(surface.text(id), &mut style.palette[index]);
             }
+        }
+    }
+    if matches!(selected, TARGET | PLAYERS | PUMPKINS | PROJECTILES) {
+        ui.checkbox(surface.text("u101"), &mut style.show_distance);
+    }
+    if selected == RADAR {
+        ui.combo_simple_string(
+            surface.text("u048"),
+            &mut state.config.comet_placement,
+            &crate::comet::PLACEMENTS,
+        );
+        ui.slider(
+            surface.text("u049"),
+            crate::comet::MIN_SCALE,
+            crate::comet::MAX_SCALE,
+            &mut state.config.comet_scale,
+        );
+        ui.slider(
+            surface.text("u190"),
+            10.0,
+            1000.0,
+            &mut state.config.radar_range,
+        );
+        if state.config.comet_placement == crate::comet::CUSTOM_PLACEMENT {
+            ui.slider(
+                surface.text("u050"),
+                0.0,
+                100.0,
+                &mut state.config.comet_x_percent,
+            );
+            ui.slider(
+                surface.text("u051"),
+                0.0,
+                100.0,
+                &mut state.config.comet_y_percent,
+            );
         }
     }
 }
 
 fn draw_general(ui: &Ui, state: &mut UiState, surface: &crate::petal_text::Frame) {
+    ui.checkbox(surface.text("u146"), &mut state.config.sb_protect);
     {
         let _id = ui.push_id("memory_features");
         let _disabled = ui.begin_disabled(!crate::edition::memory_available());
         let mut enabled = state.config.memory_features && crate::edition::memory_available();
-        if ui.checkbox(surface.text("u115"), &mut enabled) { state.config.memory_features = enabled; }
+        if crate::sb_protect::draw(ui, state.config.sb_protect, crate::sb_protect::risk(&state.config, "u115"), || ui.checkbox(surface.text("u115"), &mut enabled)) { state.config.memory_features = enabled; }
+    }
+    #[cfg(feature = "memory")]
+    if state.config.eligibility().memory {
+        ui.checkbox(surface.text("u144"), &mut state.config.hit_sound);
+        if state.config.eligibility().hitsound {
+            if let Some(_combo) = ui.begin_combo(surface.text("u145"), &state.config.hit_sound_name) {
+                for (name, _) in crate::hit_sound::SOUNDS {
+                    if ui.selectable_config(*name).selected(state.config.hit_sound_name == *name).build() {
+                        state.config.hit_sound_name = (*name).into();
+                    }
+                }
+            }
+            ui.same_line();
+            if ui.button(surface.text("u128")) {
+                if let Err(error) = crate::hit_sound::sound(&state.config.hit_sound_name)
+                    .and_then(crate::hit_sound::play)
+                {
+                    crate::log_err!("Hit sound preview failed: {error}");
+                    show_error(&error);
+                }
+            }
+        }
     }
     binding_button(ui, state, BindingTarget::Pause, surface.text("u018"));
     binding_button(ui, state, BindingTarget::Block, surface.text("u019"));
@@ -1310,45 +1842,142 @@ fn input_vec2(ui: &Ui, label: &str, value: &mut Vec2i) {
     }
 }
 
-fn radio_unicorn_activation(ui: &Ui, surface: &crate::petal_text::Frame, label: &str, value: &mut UnicornActivation) {
+fn radio_unicorn_activation(
+    ui: &Ui,
+    surface: &crate::petal_text::Frame,
+    label: &str,
+    value: &mut UnicornActivation,
+    enabled: bool,
+    key: u32,
+) {
     ui.text(label);
-    ui.radio_button(surface.text("u013"), value, UnicornActivation::Toggle);
-    ui.same_line();
-    ui.radio_button(surface.text("u014"), value, UnicornActivation::Hold);
-    ui.same_line();
-    ui.radio_button(surface.text("u016"), value, UnicornActivation::Timed);
-}
-
-fn radio_pegasus_activation(ui: &Ui, surface: &crate::petal_text::Frame, label: &str, value: &mut PegasusActivation) {
-    ui.text(label);
-    ui.radio_button(surface.text("u013"), value, PegasusActivation::Toggle);
-    ui.same_line();
-    ui.radio_button(surface.text("u014"), value, PegasusActivation::Hold);
-    ui.same_line();
-    ui.radio_button(surface.text("u015"), value, PegasusActivation::DoubleCrouch);
-}
-
-fn radio_coordinate_source(ui: &Ui, surface: &crate::petal_text::Frame, label: &str, value: &mut CoordinateSource, memory: bool) {
-    ui.text(label);
-    ui.radio_button(
-        format!("{}##{label}", surface.text("u114")),
-        value,
-        CoordinateSource::ColorDetection,
+    crate::sb_protect::draw(
+        ui,
+        enabled,
+        if key == 1 || key == 2 || true {
+            crate::sb_protect::Risk::White
+        } else {
+            crate::sb_protect::Risk::Yellow
+        },
+        || ui.radio_button(surface.text("u013"), value, UnicornActivation::Toggle),
     );
     ui.same_line();
-    let _disabled = ui.begin_disabled(!memory);
-    ui.radio_button(format!("{}##{label}", surface.text("u115")), value, CoordinateSource::Memory);
+    crate::sb_protect::draw(
+        ui,
+        enabled,
+        if key == 1 || key == 2 || false {
+            crate::sb_protect::Risk::White
+        } else {
+            crate::sb_protect::Risk::Yellow
+        },
+        || ui.radio_button(surface.text("u014"), value, UnicornActivation::Hold),
+    );
+    ui.same_line();
+    crate::sb_protect::draw(
+        ui,
+        enabled,
+        if key == 1 || key == 2 || false {
+            crate::sb_protect::Risk::White
+        } else {
+            crate::sb_protect::Risk::Yellow
+        },
+        || ui.radio_button(surface.text("u016"), value, UnicornActivation::Timed),
+    );
 }
 
-fn radio_beesmas_type(ui: &Ui, surface: &crate::petal_text::Frame, label: &str, value: &mut BeesmasType) {
+fn radio_pegasus_activation(
+    ui: &Ui,
+    surface: &crate::petal_text::Frame,
+    label: &str,
+    value: &mut PegasusActivation,
+    enabled: bool,
+    key: u32,
+) {
     ui.text(label);
-    ui.radio_button(surface.text("u009"), value, BeesmasType::Linear);
+    crate::sb_protect::draw(
+        ui,
+        enabled,
+        if false {
+            crate::sb_protect::Risk::White
+        } else {
+            crate::sb_protect::Risk::Yellow
+        },
+        || ui.radio_button(surface.text("u013"), value, PegasusActivation::Toggle),
+    );
     ui.same_line();
-    ui.radio_button(surface.text("u010"), value, BeesmasType::Logarithmic);
+    crate::sb_protect::draw(
+        ui,
+        enabled,
+        if key == 2 {
+            crate::sb_protect::Risk::White
+        } else {
+            crate::sb_protect::Risk::Yellow
+        },
+        || ui.radio_button(surface.text("u014"), value, PegasusActivation::Hold),
+    );
     ui.same_line();
-    ui.radio_button(surface.text("u011"), value, BeesmasType::Hyperbolic);
+    crate::sb_protect::draw(
+        ui,
+        enabled,
+        if true {
+            crate::sb_protect::Risk::White
+        } else {
+            crate::sb_protect::Risk::Yellow
+        },
+        || ui.radio_button(surface.text("u015"), value, PegasusActivation::DoubleCrouch),
+    );
+}
+
+fn radio_coordinate_source(
+    ui: &Ui,
+    surface: &crate::petal_text::Frame,
+    label: &str,
+    value: &mut CoordinateSource,
+    memory: bool,
+    enabled: bool,
+) {
+    ui.text(label);
+    crate::sb_protect::draw(ui, enabled, crate::sb_protect::Risk::White, || {
+        ui.radio_button(
+            format!("{}##{label}", surface.text("u114")),
+            value,
+            CoordinateSource::ColorDetection,
+        )
+    });
     ui.same_line();
-    ui.radio_button(surface.text("u012"), value, BeesmasType::Bezier);
+    let _disabled = ui.begin_disabled(!memory);
+    crate::sb_protect::draw(ui, enabled, crate::sb_protect::Risk::Red, || {
+        ui.radio_button(
+            format!("{}##{label}", surface.text("u115")),
+            value,
+            CoordinateSource::Memory,
+        )
+    });
+}
+
+fn radio_beesmas_type(
+    ui: &Ui,
+    surface: &crate::petal_text::Frame,
+    label: &str,
+    value: &mut BeesmasType,
+    enabled: bool,
+) {
+    ui.text(label);
+    crate::sb_protect::draw(ui, enabled, crate::sb_protect::Risk::Red, || {
+        ui.radio_button(surface.text("u009"), value, BeesmasType::Linear)
+    });
+    ui.same_line();
+    crate::sb_protect::draw(ui, enabled, crate::sb_protect::Risk::Red, || {
+        ui.radio_button(surface.text("u010"), value, BeesmasType::Logarithmic)
+    });
+    ui.same_line();
+    crate::sb_protect::draw(ui, enabled, crate::sb_protect::Risk::Yellow, || {
+        ui.radio_button(surface.text("u011"), value, BeesmasType::Hyperbolic)
+    });
+    ui.same_line();
+    crate::sb_protect::draw(ui, enabled, crate::sb_protect::Risk::White, || {
+        ui.radio_button(surface.text("u012"), value, BeesmasType::Bezier)
+    });
 }
 
 fn radio_ramp_apply(ui: &Ui, surface: &crate::petal_text::Frame, label: &str, value: &mut TideApply) {

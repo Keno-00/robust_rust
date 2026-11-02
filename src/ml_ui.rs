@@ -339,7 +339,7 @@ impl MlUi {
         if let Some(error) = rename_error {
             return Err(error);
         }
-        if ui.checkbox(surface.text("u131"), &mut config.ml_unicorn_enabled) && config.ml_unicorn_enabled {
+        if crate::sb_protect::draw(ui, config.sb_protect, crate::sb_protect::risk(&config, "u131"), || ui.checkbox(surface.text("u131"), &mut config.ml_unicorn_enabled)) && config.ml_unicorn_enabled {
             if let Err(error) = Store::open().and_then(|store| {
                 let model = store.load_model(&config.ml_unicorn_model)?;
                 let source = if config.coordinate_source == crate::config::CoordinateSource::Memory
@@ -360,7 +360,7 @@ impl MlUi {
                 return Err(format!("ML Unicorn could not enable: {error}"));
             }
         }
-        ui.slider(surface.text("u132"), 0.0, 100.0, &mut config.ml_unicorn_influence);
+        crate::sb_protect::draw(ui, config.sb_protect, crate::sb_protect::risk(&config, "u132"), || ui.slider(surface.text("u132"), 0.0, 100.0, &mut config.ml_unicorn_influence));
         Ok(requested)
     }
 }

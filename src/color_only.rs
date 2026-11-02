@@ -32,6 +32,7 @@ pub mod apb_spark {
     impl ApbCursorSource {
         pub fn connect(_pid: u32) -> Result<Self, String> { Err(super::unavailable()) }
         pub fn should_fire(&mut self, _red: bool, _green: bool) -> Result<Option<bool>, String> { Err(super::unavailable()) }
+        pub fn trigger_suspended(&self) -> bool { panic!("{}", super::unavailable()) }
     }
 }
 
@@ -107,6 +108,7 @@ pub mod apb_atlas {
         pub points: Vec<ProjectedPawn>, pub client_rect: RECT,
     }
     impl AtlasFrame {
+        pub fn target_in_fov(&self, _radius: f32, _x: i32, _y: i32, _priority: OrbitOrder, _filter: LanternFilter) -> Option<AtlasUnicornTarget> { panic!("{}", super::unavailable()) }
         pub fn target_with_priority(&self, _w: i32, _h: i32, _x: i32, _y: i32, _priority: OrbitOrder, _filter: LanternFilter) -> Option<AtlasUnicornTarget> {
             // A Color edition can never acquire a memory frame. This is an
             // invariant violation, not a substituted targeting implementation.
