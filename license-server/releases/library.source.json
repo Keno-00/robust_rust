@@ -10,6 +10,12 @@
       "product_id": "verux.apb",
       "title": "ML Aim updated",
       "text": "ML Aim has been updated, so you need to record a new Dataset and retrain. Sorry for the inconvenience. It will give you better results.\n\nThank you for understanding."
+    },
+    {
+      "id": "apb-changelog-2-1-8",
+      "product_id": "verux.apb",
+      "title": "VERSION 2.1.8 CHANGELOGS",
+      "text": "- Bugfix\n- Hitsounds (227 available sounds. ex: skeet, minecraft, rust_headshot, neverlose, cod, quake)\n- UI Reorganized\n- ML Aim reworked and improved\n- ML Aim .vxmodels can be exported/imported. You can share mouse models to other users\n- verux configs .vxprofiles can be exported/imported. You can share verux.apb configs to other users"
     }
   ]
 }
