@@ -1,6 +1,10 @@
 # Launcher release workflow
 
-## Current release (2026-11-02, APB 2.1.7)
+## Current release (2026-11-03, APB 2.1.8)
+
+Catalog revision 130 publishes APB 2.1.8 alongside launcher 0.3.2. 2.1.8 lets users share ML models (`.vxmodel`) and configs (`.vxprofile`) as plain files: Export/Import buttons, plus a window drop handler (drops onto the elevated window depend on Windows allowing them and were not confirmed). See `docs/ML_AIM.md`. The MSI is `target/packages/apb-launcher-2.1.8/packages/verux.apb-2.1.8.msi`, SHA-256 `5e3f4b77…`; catalog source `target/packages/launcher-live-source-r130`, built from the revision 115 source (live APB 2.1.7, launcher 0.3.2). Driver payload is byte-identical to 2.1.4 except the recompiled `DriverInstaller.exe`. Installing or upgrading with this MSI was not qualified on a test PC before publication.
+
+## Earlier release (2026-11-02, APB 2.1.7)
 
 Catalog revision 115 publishes APB 2.1.7 alongside launcher 0.3.2 (published separately as revision 111). 2.1.7 keeps only the newest complete ML Aim recording per source: saving a dataset deletes older recordings of the same source, so training data no longer accumulates past its 32 MiB limit (four memory recordings were 41.5 MiB). Recordings already stored remain until the user records again. The MSI is `target/packages/apb-launcher-2.1.7/packages/verux.apb-2.1.7.msi`, SHA-256 `3c9ad535…`; catalog source `target/packages/launcher-live-source-r115`, built from the revision 111 source. A first attempt on revision 110's source was refused by the publisher's downgrade check because launcher 0.3.2 was already live; nothing was overwritten. Driver payload is byte-identical to 2.1.4 except the recompiled `DriverInstaller.exe`. Installing or upgrading with this MSI was not qualified on a test PC before publication.
 
