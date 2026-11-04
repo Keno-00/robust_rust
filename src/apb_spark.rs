@@ -17,7 +17,7 @@ const CURSOR_POINTER_RVA: EncodedOffset = EncodedOffset::new(0x3BD3340);
 const CURSOR_FIELD_OFFSET: EncodedOffset = EncodedOffset::new(0x134);
 const WHITE: u32 = 130;
 const GREEN: u32 = 48;
-// Retained prior-build mapping; new-build captures confirmed only white/green.
+// User-approved retained mapping after Nov 4 green=48 recheck; red cursor not directly observed.
 const RED: u32 = 99;
 const UNKNOWN_GRACE: Duration = Duration::from_millis(500);
 

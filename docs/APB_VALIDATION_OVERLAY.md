@@ -69,3 +69,52 @@ overlay and create a fresh process-identity profile before relaunching.
 No new automated tests or fixtures were added. Live startup and the user's
 subsequent observations are the validation evidence; structural plausibility
 is not reported as behavioral confirmation.
+
+## Focused cursor and hit-event confirmation
+
+For the supported executable, a separate memory-only diagnostic can confirm the
+existing cursor root and hitmarker fields without running the object survey:
+
+```powershell
+python -u -B scripts/apb_hitmarker_sound_live.py (Get-Process APB).Id captures/new-cursor-hits --cursor-labels --wait-f8
+```
+
+Run elevated from the main checkout with a fresh repository-local output path.
+Only one hotkey diagnostic should run. The helper verifies an EchoDriver module
+header read and the exact supported executable hash before waiting for foreground
+F8. After F8, F1 records an operator-labelled white cursor and F2 records green;
+repeat white/green reversals. F11 ends the session. The active run is bounded to
+ten minutes and pauses on foreground loss.
+
+The overlay shows the raw integer from `APB.exe + 0x3BD3340 -> +0x134`, plus red
+sound and excluded white-hit counts. Hit events retain the existing timer-rise
+and RGBA predicate at `+0x14C` / `+0x150`. The selected diagnostic WAV is the renamed
+`assets/wav/minecraft_hit.wav`. No images or pixel predicates drive this monitor.
+`events.jsonl` records the process identity, operator cursor labels, raw values,
+timer rises, RGBA, binding changes and periodic raw samples. Logs distinguish a
+directly labelled cursor observation from an unlabelled hit-event sample.
+
+## Settled vehicle entry and exit
+
+The current core validator also supports three operator-paced vehicle snapshots:
+
+```powershell
+$env:APB_SCAN_ALLOW_UNVERIFIED_BUILD = '1'
+python -u -B scripts/apb_vehicle_capture.py (Get-Process APB).Id captures/new-vehicle-core --profile captures/THIS-LAUNCH/candidates.json
+Remove-Item Env:APB_SCAN_ALLOW_UNVERIFIED_BUILD
+```
+
+Use the profile from the exact running APB launch and a fresh output directory
+inside the checkout. The explicit `--profile` selects the supported-build
+`ValidationRuntime`; the historical four-snapshot discovery mode remains separate.
+The overlay asks for on foot, settled in the driver's seat, then exited and
+settled on foot. F8 captures the displayed state; F11 aborts. Do not press F8
+during the enter/exit animation. Wait for the next instruction before moving.
+
+Each accepted sample validates the rooted HUD, ownership links, local collision
+pose and roster through the same EchoDriver reader. Changing guarded bindings or
+an unexpected possession state visibly reject that attempt and require a new F8
+for the same step; raw attempt records and binding diagnostics are retained.
+Driver errors and unsupported layouts stop the capture. Completion requires all
+three expected states with the same pawn instance and World/controller. This
+does not validate passengers, district changes, death/respawn or full restart.

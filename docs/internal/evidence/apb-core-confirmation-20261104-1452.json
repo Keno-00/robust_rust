@@ -1,0 +1,190 @@
+{
+  "format": "apb-core-confirmation-record-v1",
+  "operator_context": {
+    "confirmation": "all is working as correctly",
+    "red_cursor_policy": "Retain red integer 99 when green is rechecked as 48; red cursor need not be tested.",
+    "vehicle_first_run": "Operator was entering/exiting and pressing F8 during transitions; exact second-F8 settled state uncertain.",
+    "remaining_scope": "Passengers, death/respawn, district travel and restart are separate checks."
+  },
+  "identity": {
+    "pid": 1452,
+    "created_filetime": 134382696964582094,
+    "image_path": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\APB Reloaded\\Binaries\\APB.exe",
+    "image_sha256": "35AEF01734AAB20B4B0C622ADDF5706F9E75CAAA98D5B84A0EA14D9DF72EE453"
+  },
+  "cursor": {
+    "root_rva": "0x3BD3340",
+    "field_offset": "0x134",
+    "object": "0x8e9d1600",
+    "labels": [
+      {
+        "label": "white",
+        "value": 48,
+        "count": 1
+      },
+      {
+        "label": "white",
+        "value": 130,
+        "count": 7
+      },
+      {
+        "label": "green",
+        "value": 48,
+        "count": 12
+      }
+    ],
+    "red_integer_retained": 99,
+    "red_cursor_directly_observed": false,
+    "initial_white_label_mismatch": "First white label read 48; unexplained, retained, followed by repeated white 130 / green 48 reversals."
+  },
+  "hits": {
+    "red_played": 2,
+    "white_silent": 2,
+    "timer_offset": "0x14C",
+    "rgba_offset": "0x150",
+    "operator_confirmed": true
+  },
+  "vehicle": {
+    "status": "vehicle_entry_exit_structurally_confirmed",
+    "same_local_pawn": true,
+    "same_world_controller": true,
+    "attempt_count": 3,
+    "stages": [
+      {
+        "label": "on_foot",
+        "utc": "2026-11-04T13:08:22.443568+00:00",
+        "state": "on_foot",
+        "pawn": "0xa600c100",
+        "possessed": "0xa600c100",
+        "world": "0x94f4510",
+        "controller": "0x7ca7c080"
+      },
+      {
+        "label": "driver",
+        "utc": "2026-11-04T13:08:28.959617+00:00",
+        "state": "vehicle_possession",
+        "pawn": "0xa600c100",
+        "possessed": "0x1718ea900",
+        "world": "0x94f4510",
+        "controller": "0x7ca7c080"
+      },
+      {
+        "label": "exited",
+        "utc": "2026-11-04T13:08:33.718678+00:00",
+        "state": "on_foot",
+        "pawn": "0xa600c100",
+        "possessed": "0xa600c100",
+        "world": "0x94f4510",
+        "controller": "0x7ca7c080"
+      }
+    ]
+  },
+  "archive": {
+    "path": "docs/internal/evidence/apb-core-confirmation-20261104-1452.zip",
+    "sha256": "59c5e5d6789b581ada847c5c5bb16bc248993e736385218726ed16bd416129d6",
+    "bytes": 40105,
+    "crc_validation": "passed"
+  },
+  "sources": [
+    {
+      "path": "captures/apb-cursor-hits-20261104-1452-r2/events.jsonl",
+      "bytes": 57297,
+      "sha256": "e5a336a96c4f022152d40a6e7e532ba9e7ba2350bec6d420f13da5da04a20fd5"
+    },
+    {
+      "path": "captures/apb-cursor-hits-20261104-1452-r2/operator-context.json",
+      "bytes": 399,
+      "sha256": "a451b00f44b9b7f722f50204760ebc21dc354ecec1a2d77c3ca41c56cc3238ef"
+    },
+    {
+      "path": "captures/apb-cursor-hits-20261104-1452-r2.log",
+      "bytes": 3410,
+      "sha256": "7e37b5bde244bbedf97dce815c723f996f27554f8015ee1e9e825ccd4e51c6b6"
+    },
+    {
+      "path": "captures/apb-cursor-hits-20261104-1452.log",
+      "bytes": 2627,
+      "sha256": "58880a15096404fd11ee1ca36220450e74552d988e1a16d27586c94b31b2cf97"
+    },
+    {
+      "path": "captures/apb-vehicle-core-20261104-1452/driver.json",
+      "bytes": 17186,
+      "sha256": "82e192697fc36a8ca6c54395be6b925f9f9a05fe3b07296636f267f638eb07ef"
+    },
+    {
+      "path": "captures/apb-vehicle-core-20261104-1452/on_foot.json",
+      "bytes": 14611,
+      "sha256": "5f5bda88a3d60c36a9cf204f30fdb05d2997b9cb84f3ef95398aa41266a2e0ff"
+    },
+    {
+      "path": "captures/apb-vehicle-core-20261104-1452/summary.json",
+      "bytes": 42923,
+      "sha256": "9e6aaf1a7db4a670b4a8fb406272759335e86f53d49fcea551517c584a717343"
+    },
+    {
+      "path": "captures/apb-vehicle-core-20261104-1452-r2/session.json",
+      "bytes": 552,
+      "sha256": "ccc32be91c483517200412ec603f4b86317b114feb6d8ba26909f45e2cb39783"
+    },
+    {
+      "path": "captures/apb-vehicle-core-20261104-1452-r2/summary.json",
+      "bytes": 5289,
+      "sha256": "d2f8e6f5017b667d9b75d8f1f7956589c6d7b5c0d98265107daf2f5900b72168"
+    },
+    {
+      "path": "captures/apb-vehicle-core-20261104-1452-r2.log",
+      "bytes": 3023,
+      "sha256": "a47d5eb98965511dea42eb446ed2bfe4966597bc91840b577101c41ec4c156a2"
+    },
+    {
+      "path": "captures/apb-vehicle-core-20261104-1452-r3/attempt-001.json",
+      "bytes": 6805,
+      "sha256": "c841f68c7f497f2d61803290c99ccefa5d9a4f3f504c798e57fbfc6dd859f34a"
+    },
+    {
+      "path": "captures/apb-vehicle-core-20261104-1452-r3/attempt-002.json",
+      "bytes": 6852,
+      "sha256": "8493f95ea8444d1f353558092e57a95ee8de61203e504b28fd622fc6a939ab95"
+    },
+    {
+      "path": "captures/apb-vehicle-core-20261104-1452-r3/attempt-003.json",
+      "bytes": 6802,
+      "sha256": "f6ebabfcd970017592e84a25d989c3a6ccf08f1dd783d05f71c1c58094348767"
+    },
+    {
+      "path": "captures/apb-vehicle-core-20261104-1452-r3/driver.json",
+      "bytes": 6852,
+      "sha256": "8493f95ea8444d1f353558092e57a95ee8de61203e504b28fd622fc6a939ab95"
+    },
+    {
+      "path": "captures/apb-vehicle-core-20261104-1452-r3/exited.json",
+      "bytes": 6802,
+      "sha256": "f6ebabfcd970017592e84a25d989c3a6ccf08f1dd783d05f71c1c58094348767"
+    },
+    {
+      "path": "captures/apb-vehicle-core-20261104-1452-r3/on_foot.json",
+      "bytes": 6805,
+      "sha256": "c841f68c7f497f2d61803290c99ccefa5d9a4f3f504c798e57fbfc6dd859f34a"
+    },
+    {
+      "path": "captures/apb-vehicle-core-20261104-1452-r3/session.json",
+      "bytes": 552,
+      "sha256": "ccc32be91c483517200412ec603f4b86317b114feb6d8ba26909f45e2cb39783"
+    },
+    {
+      "path": "captures/apb-vehicle-core-20261104-1452-r3/summary.json",
+      "bytes": 52578,
+      "sha256": "ef236d8890cc433a78809f05374e3383a9f4c01af3bd033a7fe6746dff2198bb"
+    },
+    {
+      "path": "captures/apb-vehicle-core-20261104-1452-r3.log",
+      "bytes": 3333,
+      "sha256": "bb2f1c4d53c66455e55ebaafb9600a67ebda5fd94fa525fb431ce9deeea5355f"
+    },
+    {
+      "path": "captures/apb-vehicle-core-20261104-1452.log",
+      "bytes": 3246,
+      "sha256": "456c449b950d83e77a5571bafaa3fc48a21f3b910d51673a91c694531081c33c"
+    }
+  ]
+}

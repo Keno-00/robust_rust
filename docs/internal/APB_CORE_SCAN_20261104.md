@@ -47,6 +47,10 @@ Cursor colors, hitmarker events, true visibility, vehicle/passenger transitions,
 death/respawn, district travel and restart reacquisition were not validated here.
 No screenshots or visual projection acceptance were obtained for this scan.
 
+Subsequent same-launch cursor, hit-event and vehicle entry/exit results are in
+[the follow-up confirmation record](APB_CORE_CONFIRMATION_20261104.md), including
+the user's decision to leave district-change and restart live checks pending.
+
 ## Audit correction and validation
 
 The first audit failed with `HUD binding changed during audit` and skipped its
