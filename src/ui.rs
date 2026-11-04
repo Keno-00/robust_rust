@@ -1516,12 +1516,14 @@ fn draw_aurora_controls(ui: &Ui, state: &mut UiState, surface: &crate::petal_tex
         if state.config.lanterns {
             binding_button(ui, state, BindingTarget::Lanterns, surface.text("u097"));
         }
-        crate::sb_protect::draw(
-            ui,
-            state.config.sb_protect,
-            crate::sb_protect::risk(&state.config, "u133"),
-            || ui.checkbox(surface.text("u133"), &mut state.config.jade),
-        );
+        if e.pumpkins {
+            crate::sb_protect::draw(
+                ui,
+                state.config.sb_protect,
+                crate::sb_protect::risk(&state.config, "u133"),
+                || ui.checkbox(surface.text("u133"), &mut state.config.jade),
+            );
+        }
         crate::sb_protect::draw(
             ui,
             state.config.sb_protect,
@@ -1535,7 +1537,7 @@ fn draw_aurora_controls(ui: &Ui, state: &mut UiState, surface: &crate::petal_tex
             crate::sb_protect::risk(&state.config, "u043"),
             || ui.checkbox(surface.text("u043"), &mut state.config.comet),
         );
-        if state.config.comet {
+        if e.pumpkins && state.config.comet {
             let _id = ui.push_id("comet_jade");
             crate::sb_protect::draw(
                 ui,
@@ -1552,7 +1554,7 @@ fn draw_aurora_controls(ui: &Ui, state: &mut UiState, surface: &crate::petal_tex
         e.aim && state.config.aurora_enabled && state.config.unicorn_target_box,
         e.aim && state.config.aurora_enabled && state.config.lines,
         e.memory && state.config.lanterns,
-        e.memory && state.config.jade,
+        e.pumpkins && state.config.jade,
         e.memory && state.config.wisps,
         e.memory && state.config.comet,
     ];

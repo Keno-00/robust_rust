@@ -95,5 +95,7 @@ Nothing was deployed or published. EchoDriver remains running.
 
 The user also directed a later Pumpkins decommission: an explicit reversible
 decommissioned flag, hidden UI and safely disabled behavior, no delivery, and a
-notice-board entry later. That product work is deferred because the user made
-the F8 scan the sole current focus. It has not been implemented or published.
+notice-board entry later. That product work was deferred during the F8-only
+phase. The subsequent UI authorization and reversible implementation are
+recorded in [the decommission note](PUMPKINS_DECOMMISSION_20261104.md); it remains
+unpublished.

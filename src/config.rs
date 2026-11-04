@@ -82,11 +82,15 @@ pub struct RuntimeRequirements {
     pub quill: bool,
 }
 
+/// Reversible seasonal suspension; saved preferences do not override this flag.
+pub const PUMPKINS_DECOMMISSIONED: bool = true;
+
 /// Effective capability gates shared by UI, preparation, and runtime.
 #[derive(Debug, Clone, Copy)]
 pub struct FeatureEligibility {
     pub hitsound: bool,
     pub memory: bool,
+    pub pumpkins: bool,
     pub aim: bool,
     pub trigger: bool,
     pub memory_aim: bool,
@@ -399,7 +403,8 @@ impl ProfileConfig {
         let color_aim = self.unicorn && self.coordinate_source == CoordinateSource::ColorDetection;
         let memory_trigger = self.pegasus && memory && self.pegasus_source == CoordinateSource::Memory;
         let color_trigger = self.pegasus && self.pegasus_source == CoordinateSource::ColorDetection;
-        FeatureEligibility { hitsound: memory && self.hit_sound, memory, aim: memory_aim || color_aim, trigger: memory_trigger || color_trigger,
+        FeatureEligibility { hitsound: memory && self.hit_sound, memory, pumpkins: memory && !PUMPKINS_DECOMMISSIONED,
+            aim: memory_aim || color_aim, trigger: memory_trigger || color_trigger,
             memory_aim, color_aim, memory_trigger, color_trigger }
     }
 
@@ -415,10 +420,10 @@ impl ProfileConfig {
         if !eligible.memory {
             effective.lanterns = false;
             effective.comet = false;
-            effective.jade = false;
             effective.wisps = false;
         }
-        effective.comet_jade &= effective.comet;
+        effective.jade &= eligible.pumpkins;
+        effective.comet_jade &= effective.comet && eligible.pumpkins;
         if !eligible.aim {
             effective.ml_unicorn_enabled = false;
             effective.drift_guard = false;

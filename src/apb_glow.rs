@@ -120,6 +120,10 @@ impl ObjectWorkers {
         jade_enabled: bool,
         wisp_enabled: bool,
     ) -> Result<Self, String> {
+        if jade_enabled && crate::config::PUMPKINS_DECOMMISSIONED {
+            crate::log_err!("Decommissioned pumpkin acquisition requested; worker startup rejected.");
+            return Err("The requested object source is unavailable in this build. Restart processing with current settings.".into());
+        }
         if pid == 0 || !orchid::pointer(base) {
             return Err("Object workers require the verified APB PID and module base.".into());
         }

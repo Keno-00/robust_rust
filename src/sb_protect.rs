@@ -171,10 +171,10 @@ pub(crate) fn risk(c: &ProfileConfig, id: &str) -> Risk {
         "u036" => on(c.aurora_enabled && e.aim && c.unicorn_target_box),
         "u038" => on(c.aurora_enabled && e.aim && c.lines),
         "u096" => on(e.memory && c.lanterns),
-        "u133" => on(e.memory && c.jade),
+        "u133" => on(e.pumpkins && c.jade),
         "u134" => on(e.memory && c.wisps),
         "u043" => on(e.memory && c.comet),
-        "v_radar_objects" => on(e.memory && c.comet && c.comet_jade),
+        "v_radar_objects" => on(e.pumpkins && c.comet && c.comet_jade),
         _ => White,
     }
 }

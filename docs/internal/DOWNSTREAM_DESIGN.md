@@ -18,6 +18,7 @@ Saved choices are preferences, not authorization. Keep preferences when a parent
 | Memory aim source | Mission filters, distance priority, recency gate, approximate body anchors, Memory ML | Other-source controls unavailable |
 | Trigger master + eligible source | Trigger-specific filters and activation | Hide children; no trigger worker |
 | Memory + Hit sound (General) | Supplied WAV selector and repeatable Preview action; local red-hit audio | Hide selector/preview when disabled; strip from effective config when Memory unavailable; no sound worker or hash requirement |
+| Memory + Pumpkins commissioned | Pumpkin visual markers, appearance entry/copy source and radar-object option | Hide all related controls; strip visual and radar requests from effective config; no pumpkin acquisition worker; preserve preferences |
 | Independent screen visuals | Crosshair, FOV and screen-only elements | Do not tie these to memory merely because they share Visuals |
 | Closest Point vertical mode | Head/Neck/Torso/Feet subset | Hide subset; reject empty subset at Start |
 
@@ -54,3 +55,12 @@ Weapon labels need verified pawn-to-equipped-weapon identity. Looking-at-you ale
 - Hit sounds must use a verified direct memory signal distinguishing red/flesh hits from white hits. The user explicitly rejected pixel detection. Captured hitmarker images are diagnostic ground truth only; never introduce them as an automatic runtime fallback.
 - Initial remote-facing and nearby-player identity probes did not establish a looking-at-you address, display name, equipped model or ammo count. Keep those unresolved; do not promote a 180-degree visual mismatch into a simple sign correction without rotation evidence.
 - Red hit sounds were live-confirmed on 2026-10-19: cursor object timer +0x14C rises and decays; +0x150 four floats are RGBA. Red (1,0,0,1) plays, white (1,1,1,1) does not. General → Memory → Hit sound → Sound is independent of Aim/Trigger. Default off; embedded supplied WAVs retain the one-executable product. Focus, pause and binding changes reset the event baseline; read/playback failures stop processing visibly. The temporary confirmation logged 13 red sounds and 6 excluded white events; user confirmed correct playback. Rapid events between polls can be missed; this is hitmarker feedback, not a damage counter.
+
+## User decision — 2026-11-04
+
+Pumpkins is seasonally decommissioned through the source-controlled
+`config::PUMPKINS_DECOMMISSIONED` flag and shared `FeatureEligibility::pumpkins`
+capability. The user authorized hiding every related UI entry and safely
+disabling behavior while preserving it for future reactivation. No delivery or
+notice-board publication is part of this change. See
+[implementation and reactivation](PUMPKINS_DECOMMISSION_20261104.md).
