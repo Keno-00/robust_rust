@@ -20,6 +20,32 @@ do not combine captures from different process identities. The scripts expect
 the verified APB.exe build and EchoDriver read access from an elevated shell.
 The camera tool also needs the installed Python NumPy and Pillow packages.
 
+## Fresh core discovery
+
+From an elevated PowerShell in the main checkout, choose a new directory inside
+the repository:
+
+```powershell
+.\scripts\run_apb_core_f8.ps1 -OutputDirectory captures/apb-core-new-session
+```
+
+The helper logs the installed EchoDriver service state, starts that service if
+stopped, and verifies an encrypted v3 read of the APB module header. It then
+waits indefinitely for F8 with APB foreground. Settle in a loaded district before
+F8 and hold the scene until `CAPTURE COMPLETE`. The broad scan captures writable
+module sections, bounded array hypotheses, typed object prefixes and structural
+camera candidates. Its output is discovery evidence, not approved product
+offsets. The diagnostic-only unverified-build override and actual executable
+hash are logged; the product hash gate is unchanged.
+
+The log is `<OutputDirectory>.log`. The helper refuses existing output, output
+outside the checkout, missing elevation, and unavailable driver access. It does
+not install a driver, provision a key, select another reader, or change product
+configuration. Use the exact-launch `candidates.json` for follow-up inspection.
+`apb_runtime_audit.py` can check the current core structure only when the captured
+hash matches its explicitly supported executable; a new executable requires
+fresh type/root investigation before that audit can be used.
+
 For discovery on a new executable, explicitly bypass the diagnostic hash gate
 in that elevated PowerShell session before running the capture commands:
 

@@ -67,34 +67,18 @@ def main():
                 print(f"FAIL {label}: {error}", flush=True)
 
         def hud_check():
-            root = read(base+0x3DCE240, 16)
-            table, count, capacity = struct.unpack("<Qii", root)
-            if not 0 < count <= capacity <= 1000000:
-                raise RuntimeError("HUD root bounds invalid")
-            entries = read(table, 1024)
-            matches = []
-            for index, (address,) in enumerate(struct.iter_unpack("<Q", entries)):
-                if not 0x10000 <= address < 0x800000000000 or address % 8:
-                    continue
-                header = read(address, 0x40)
-                if kind(header, base) == TYPES["hud"]:
-                    matches.append((index, address))
-            if len(matches) != 1:
-                raise RuntimeError(f"Expected unique HUD in 128 slots, found {len(matches)}")
-            index, address = matches[0]
-            body = typed(address, "hud", 0x700)
-            matrix = struct.unpack_from("<16f", body, 0x680)
-            xyz = struct.unpack_from("<3f", body, 0x6C0)
-            if (not all(math.isfinite(v) for v in (*matrix, *xyz))
-                    or abs(matrix[14]+9.99) > 0.02 or abs(matrix[15]) > 0.02):
-                raise RuntimeError("HUD projection shape differs")
-            if (read(base+0x3DCE240, 16) != root
-                    or u64(read(table+index*8, 8), 0) != address
-                    or instance_signature(typed(address, "hud")) != instance_signature(body)):
-                raise RuntimeError("HUD binding changed during audit")
+            # Import here: the live validator shares this module's type constants.
+            from apb_validation_runtime import ValidationRuntime
+            diagnostics = report.setdefault("hud_diagnostics", [])
+            runtime = ValidationRuntime(session, source, diagnostic=lambda event, **fields:
+                                        diagnostics.append({"event": event, **fields}))
+            camera, body, binding = runtime.camera()
+            root, table, index, address, entries = binding
             context.update(hud=address)
             return {"root_rva": "0x3DCE240", "index": index, "address": hex(address),
-                    "matrix": matrix, "position": xyz, "body_hex": body.hex()}
+                    "matrix": camera["matrix"], "position": camera["position"], "body_hex": body.hex(),
+                    "root_hex": root.hex(), "active_entries_hex": entries.hex(),
+                    "binding_guard": "ValidationRuntime.camera / guard_hud"}
 
         def ownership_check():
             hud = context["hud"]
@@ -242,6 +226,9 @@ def main():
         if "nodes" in context:
             check("render_timestamp_consistency", recency_check)
             check("mission_raw_layout", mission_check)
+        failed = [label for label, result in report["checks"].items() if result["status"] == "failed"]
+        if failed:
+            raise RuntimeError(f"Structural checks failed: {', '.join(failed)}; dependent checks were skipped")
         report["status"] = "structural_audit_complete_not_behavioral_approval"
         report["unverified"] = ["cursor root and colors", "mission/team behavior", "visibility/occlusion",
                                 "vehicle entry/exit/passengers", "death/respawn", "district travel", "full process restart"]

@@ -14,6 +14,7 @@ import numpy as np
 from apb_cursor_scan import Session
 from apb_cursor_modules import module_base
 from apb_manual_labels import instance_signature
+from apb_cursor_unknown import wait_f8
 
 
 def valid_pointer(value):
@@ -34,6 +35,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("pid", type=int)
     parser.add_argument("output_directory", type=Path)
+    parser.add_argument("--wait-f8", action="store_true",
+                        help="Verify EchoDriver access, then wait for foreground APB F8 before discovery")
     parser.add_argument("--array-entry-limit", type=int, default=131072)
     parser.add_argument("--position-offsets", type=lambda v: int(v, 0), nargs="+",
                         default=[0x88, 0xD0, 0x108])
@@ -52,6 +55,10 @@ def main():
         base = module_base(session)
         report["module_base"] = hex(base)
         header = session.read(base, 4096)
+        report["memory_reader"] = "EchoDriver encrypted v3 / Session.read"
+        if args.wait_f8:
+            print("EchoDriver v3 preflight passed: APB module header read. Waiting for F8.", flush=True)
+            wait_f8(session, "a settled in-district scene for core build discovery")
         pe = struct.unpack_from("<I", header, 0x3C)[0]
         if pe + 24 > len(header) or header[pe:pe+4] != b"PE\0\0":
             raise RuntimeError("Invalid PE header")
