@@ -1,5 +1,21 @@
 # Launcher release workflow
 
+## Current release (2026-11-23, two channels; Songmaker, EchoDriver, Leonardo)
+
+- **Channel 1** (`/launcher/v1/catalog`, every launcher), **revision 260**: launcher **0.4.1** and APB 2.1.8. It carries only fields 0.3.x accepts, so every launcher keeps self-updating.
+- **Channel 2** (`/launcher/v2/catalog`, launcher 0.4.1+), **revision 1000**:
+  - APB 2.1.9 (no driver; EchoDriver prerequisite; LEONARDO tool)
+  - Songmaker 2.0.0 (paid)
+  - `verux.echodriver` 1.0.0 (hidden)
+  - `verux.leonardo` 2.0.0 (tool)
+
+  It starts at 1000 so it is above any channel 1 revision a launcher has stored.
+- **Channel 2 library** (`library/v2/current.json`, `POST /v3/library/policy`): adds `verux.sm` (paid) and the `any_of` items. The channel 1 library is unchanged.
+- **Workers:** `verux-license` 2f5c8767 (v2 routes; grants use the channel 2 policy) and `verux-catalog-renewal` 8eb4fffb (renews both catalogs).
+- **Checks:** both catalogs passed `release.mjs validate` and launcher 0.4.1 `--verify-catalog` (exit 0).
+- **Publishing:** to publish channel 2, use `Publish-Release.ps1 -Channel 2` (and `VERUX_RELEASE_CHANNEL=2` for prepare/validate).
+- **Not qualified:** the launcher 0.4.0 → 0.4.1 self-update, the launcher-driven APB 2.1.8 migration (uninstall, EchoDriver, install) and a Songmaker or Leonardo install through the launcher. The MSI migration itself was qualified on the operator's PC (see the contract).
+
 ## Current release (2026-11-23, launcher 0.4.0; Worker bd6abe7d; Leonardo 2.0 template)
 
 - **Catalog revision 250** publishes launcher 0.4.0 next to the unchanged APB 2.1.8 (product fields 0.3.x accepts, so 0.3.x launchers self-update).
