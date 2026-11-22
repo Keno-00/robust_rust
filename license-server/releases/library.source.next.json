@@ -1,0 +1,62 @@
+{
+ "schema": 1,
+ "products": [
+  {
+   "id": "verux.apb",
+   "access": "paid",
+   "purchase_url": "https://payhip.com/b/J3Omz",
+   "directory": "VeruxAPB",
+   "entropy": "veruxapb-license-ledger-v2"
+  },
+  {
+   "id": "verux.launcher",
+   "access": "free",
+   "purchase_url": "",
+   "directory": "",
+   "entropy": ""
+  },
+  {
+   "id": "verux.sm",
+   "access": "paid",
+   "purchase_url": "https://payhip.com/b/NfvjB",
+   "directory": "VeruxSM",
+   "entropy": "veruxsm-license-ledger-v2"
+  },
+  {
+   "id": "verux.echodriver",
+   "access": "any_of",
+   "any_of": [
+    "verux.apb",
+    "verux.sm"
+   ],
+   "purchase_url": "",
+   "directory": "",
+   "entropy": ""
+  },
+  {
+   "id": "verux.leonardo",
+   "access": "any_of",
+   "any_of": [
+    "verux.apb",
+    "verux.sm"
+   ],
+   "purchase_url": "",
+   "directory": "",
+   "entropy": ""
+  }
+ ],
+ "notices": [
+  {
+   "id": "apb-ml-aim-retrain-20261102",
+   "product_id": "verux.apb",
+   "title": "ML Aim updated",
+   "text": "ML Aim has been updated, so you need to record a new Dataset and retrain. Sorry for the inconvenience. It will give you better results.\n\nThank you for understanding."
+  },
+  {
+   "id": "apb-changelog-2-1-8",
+   "product_id": "verux.apb",
+   "title": "VERSION 2.1.8 CHANGELOGS",
+   "text": "- Bugfix\n- Hitsounds (227 available sounds. ex: skeet, minecraft, rust_headshot, neverlose, cod, quake)\n- UI Reorganized\n- ML Aim reworked and improved\n- ML Aim .vxmodels can be exported/imported. You can share mouse models to other users\n- verux configs .vxprofiles can be exported/imported. You can share verux.apb configs to other users"
+  }
+ ]
+}

@@ -57,8 +57,11 @@ function personalize(image: Uint8Array, offset: number, vid: number, pid: number
 }
 
 export async function deliverFirmware(body: Record<string, unknown>, env: FirmwareEnv, sessionHash: string, expiresAt: number): Promise<Response> {
+  // One Leonardo firmware for APB and Songmaker licenses (stored under verux.apb).
   const product = body.product_id === "verux.apb" ? "verux.apb"
+    : body.product_id === "verux.sm" ? "verux.sm"
     : body.product_id === "verux.apb.cb" ? "verux.apb.cb" : null;
+  const storage = product === "verux.sm" ? "verux.apb" : product;
   if (!product || body.firmware_id !== "leonardo-mouse"
     || body.board_model !== "arduino-leonardo" || body.mcu_signature !== "1e9587"
     || !Number.isInteger(body.target_vid) || !Number.isInteger(body.target_pid)
@@ -75,7 +78,7 @@ export async function deliverFirmware(body: Record<string, unknown>, env: Firmwa
   if (!selected! || typeof selected! !== "object" || typeof selected!.digest !== "string"
     || typeof selected!.version !== "string" || !/^[a-f0-9]{64}$/.test(selected!.digest)
     || !/^[0-9A-Za-z.-]{1,64}$/.test(selected!.version) || !Number.isSafeInteger(selected!.descriptor_offset)) fail("firmware_template");
-  const object = await env.ALGORITHM_ARTIFACTS.get(`${product}/firmware/leonardo/template/${selected!.version}/${selected!.digest}.hex`);
+  const object = await env.ALGORITHM_ARTIFACTS.get(`${storage}/firmware/leonardo/template/${selected!.version}/${selected!.digest}.hex`);
   if (!object || object.size === 0 || object.size > 128 * 1024) fail("firmware_unavailable");
   const bytes = new Uint8Array(await object!.arrayBuffer());
   let image: Uint8Array | undefined, personalized: Uint8Array | undefined;

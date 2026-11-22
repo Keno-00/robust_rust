@@ -432,6 +432,12 @@ async function activate(request: Request, env: Env, ctx: ExecutionContext, libra
   if (library && !(await libraryConfig(env)).products.some(p => p.id === product.id && p.access === "paid")) {
     throw new RequestFailure(400,"invalid_library_product","This product is not enrolled in the library.");
   }
+  // grant_for: the launcher verifies a paid license it holds and asks for an
+  // any_of product (EchoDriver, Leonardo) that lists it.
+  const grantFor = library ? stringAt(body, "grant_for").trim() : "";
+  if (grantFor && !(await libraryConfig(env)).products.some(p => p.id === grantFor && p.access === "any_of" && p.any_of!.includes(product.id))) {
+    throw new RequestFailure(400,"invalid_grant_product","This product is not available with this license.");
+  }
   const licenseKey = stringAt(body, "license_key").trim();
   const installId = stringAt(body, "install_id");
   const clientVersion = stringAt(body, "client_version");
@@ -568,7 +574,9 @@ async function activate(request: Request, env: Env, ctx: ExecutionContext, libra
     if (!policy || policy.access !== "paid") throw new Error("Paid library product not configured");
     await env.LICENSE_DB.prepare("DELETE FROM launcher_license_expiry WHERE product_id=? AND license_hash=?").bind(product.id,licenseHash).run();
     await audit(env, request, product.id, "library_verified", licenseHash, installHash);
-    return json({valid:true,status:"valid",message:"VERIFIED",download_token:await downloadGrant(env,product.id,licenseHash)});
+    return json({valid:true,status:"valid",message:"VERIFIED",download_token:grantFor
+      ? await downloadGrant(env,grantFor,licenseHash,product.id)
+      : await downloadGrant(env,product.id,licenseHash)});
   }
 
   const sessionToken = randomToken();
