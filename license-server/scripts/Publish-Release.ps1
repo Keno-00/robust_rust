@@ -4,6 +4,8 @@ param(
     [Parameter(Mandatory)][string]$CredentialsFile,
     [string]$RenewInto,
     [switch]$Library,
+    # 2: the launcher 0.4.1+ catalog/library (prerequisites, tools, any_of).
+    [ValidateSet(1,2)][int]$Channel=1,
     [string]$PrivateKeyFile,
     [ValidatePattern('^[a-f0-9]{32}$')][string]$AccountId='8b35956ff018a988ed0a6c84df4f4807',
     [string]$Bucket='verux-release-artifacts'
@@ -17,7 +19,7 @@ $raw=Get-Content -Raw -LiteralPath $CredentialsFile
 $access=[regex]::Match($raw,'(?im)Access\s+Key\s+ID\s*[:=]?\s*\r?\n?\s*([a-f0-9]{32})')
 $secret=[regex]::Match($raw,'(?im)Secret\s+Access\s+Key\s*[:=]?\s*\r?\n?\s*([a-f0-9]{64})')
 if(-not $access.Success -or -not $secret.Success){throw 'Could not identify S3 credentials by their labels.'}
-$values=@{R2_ACCESS_KEY_ID=$access.Groups[1].Value;R2_SECRET_ACCESS_KEY=$secret.Groups[1].Value;R2_ACCOUNT_ID=$AccountId;R2_BUCKET=$Bucket;VERUX_RELEASE_PRIVATE_KEY_FILE=(Resolve-Path -LiteralPath $PrivateKeyFile).Path}
+$values=@{R2_ACCESS_KEY_ID=$access.Groups[1].Value;R2_SECRET_ACCESS_KEY=$secret.Groups[1].Value;R2_ACCOUNT_ID=$AccountId;R2_BUCKET=$Bucket;VERUX_RELEASE_PRIVATE_KEY_FILE=(Resolve-Path -LiteralPath $PrivateKeyFile).Path;VERUX_RELEASE_CHANNEL=[string]$Channel}
 $previous=@{}
 try {
     foreach($name in $values.Keys){$previous[$name]=[Environment]::GetEnvironmentVariable($name,'Process');[Environment]::SetEnvironmentVariable($name,$values[$name],'Process')}

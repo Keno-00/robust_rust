@@ -8,7 +8,12 @@ interface RenewalEnv {
 
 const encoder = new TextEncoder();
 const prefix = encoder.encode("VERUX-RELEASE-CATALOG-V1\n");
-const currentKey = "catalog/current.json";
+/** v1 serves every launcher; v2 serves launcher 0.4.1+. Each is renewed on
+ *  its own; v2 is skipped until it has been published. */
+const channels = [
+  { currentKey: "catalog/current.json", renewals: "catalog/renewals/", required: true },
+  { currentKey: "catalog/v2/current.json", renewals: "catalog/v2/renewals/", required: false },
+];
 
 function bytes(value: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(value), c => c.charCodeAt(0));
@@ -27,9 +32,10 @@ function signedBytes(payload: Uint8Array): Uint8Array<ArrayBuffer> {
   return result;
 }
 
-async function renew(env: RenewalEnv): Promise<void> {
+async function renew(env: RenewalEnv, currentKey: string, renewals: string, required: boolean): Promise<void> {
   const object = await env.RELEASE_ARTIFACTS.get(currentKey);
-  if (!object || object.size > 1024 * 1024) throw new Error("Current catalog missing or oversized");
+  if (!object && !required) return;
+  if (!object || object.size > 1024 * 1024) throw new Error("Current catalog missing or oversized: " + currentKey);
   const envelope = JSON.parse(await object.text());
   if (!envelope || Object.keys(envelope).sort().join(",") !== "payload,signature" ||
       typeof envelope.payload !== "string" || typeof envelope.signature !== "string") {
@@ -52,7 +58,7 @@ async function renew(env: RenewalEnv): Promise<void> {
     throw new Error("Catalog renewal contract rejected; operator intervention required");
   }
   if (now <= catalog.issued_at + 60) {
-    console.log(JSON.stringify({ event: "CATALOG_RENEWAL_SKIPPED", revision: catalog.revision, reason: "recent_publication" }));
+    console.log(JSON.stringify({ event: "CATALOG_RENEWAL_SKIPPED", catalog: currentKey, revision: catalog.revision, reason: "recent_publication" }));
     return;
   }
   catalog.revision += 1;
@@ -67,7 +73,7 @@ async function renew(env: RenewalEnv): Promise<void> {
   const renewed = JSON.stringify({ payload: base64(fresh), signature: base64(new Uint8Array(signature)) });
   const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(renewed))), b => b.toString(16).padStart(2, "0")).join("");
   // A separate content-addressed archive avoids claiming a publisher's numeric history slot during a race.
-  const archived = await env.RELEASE_ARTIFACTS.put(`catalog/renewals/${catalog.revision}-${digest}.json`, renewed, {
+  const archived = await env.RELEASE_ARTIFACTS.put(`${renewals}${catalog.revision}-${digest}.json`, renewed, {
     onlyIf: { etagDoesNotMatch: "*" }, httpMetadata: { contentType: "application/json" },
   });
   if (!archived) throw new Error("Renewal archive already exists; inspect concurrent execution");
@@ -75,13 +81,24 @@ async function renew(env: RenewalEnv): Promise<void> {
     onlyIf: { etagMatches: object.etag }, httpMetadata: { contentType: "application/json", cacheControl: "no-store" },
   });
   if (!committed) throw new Error("Catalog changed during renewal; newer publication retained");
-  console.log(JSON.stringify({ event: "CATALOG_RENEWED", revision: catalog.revision, expires_at: catalog.expires_at }));
+  console.log(JSON.stringify({ event: "CATALOG_RENEWED", catalog: currentKey, revision: catalog.revision, expires_at: catalog.expires_at }));
 }
 
 export default {
   async scheduled(_controller: ScheduledController, env: RenewalEnv): Promise<void> {
     try {
-      await renew(env);
+      // Each catalog renews independently; a failure in one does not stop the
+      // other, and still raises the alert below.
+      let failure: unknown = null;
+      for (const channel of channels) {
+        try {
+          await renew(env, channel.currentKey, channel.renewals, channel.required);
+        } catch (error) {
+          console.error("CATALOG_RENEWAL_FAILED", channel.currentKey, error instanceof Error ? error.message : "Unknown failure");
+          failure ??= error;
+        }
+      }
+      if (failure) throw failure;
     } catch (error) {
       console.error("CATALOG_RENEWAL_FAILED", error instanceof Error ? error.message : "Unknown failure");
       if (env.RENEWAL_DISCORD_WEBHOOK_URL) {

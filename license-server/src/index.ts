@@ -1,5 +1,5 @@
 import { launcherRequest, LauncherEnv } from "./launcher-delivery";
-import { libraryConfig, downloadGrant } from "./launcher-library";
+import { libraryConfig, grantLibraryConfig, downloadGrant } from "./launcher-library";
 import {
   boundedText, diagnostic, DISCORD_BODY_MAX_BYTES, isJsonContentType,
   readLicenseBody, RequestFailure, UPSTREAM_BODY_MAX_BYTES, UPSTREAM_TIMEOUT_MS,
@@ -429,13 +429,13 @@ async function activate(request: Request, env: Env, ctx: ExecutionContext, libra
   const body = await readLicenseBody(request);
   const product = requestedProduct(body, env);
   if (!product) return json({ valid: false, status: "invalid_product", message: "A supported product_id is required." }, 400);
-  if (library && !(await libraryConfig(env)).products.some(p => p.id === product.id && p.access === "paid")) {
+  if (library && !(await grantLibraryConfig(env)).products.some(p => p.id === product.id && p.access === "paid")) {
     throw new RequestFailure(400,"invalid_library_product","This product is not enrolled in the library.");
   }
   // grant_for: the launcher verifies a paid license it holds and asks for an
   // any_of product (EchoDriver, Leonardo) that lists it.
   const grantFor = library ? stringAt(body, "grant_for").trim() : "";
-  if (grantFor && !(await libraryConfig(env)).products.some(p => p.id === grantFor && p.access === "any_of" && p.any_of!.includes(product.id))) {
+  if (grantFor && !(await grantLibraryConfig(env)).products.some(p => p.id === grantFor && p.access === "any_of" && p.any_of!.includes(product.id))) {
     throw new RequestFailure(400,"invalid_grant_product","This product is not available with this license.");
   }
   const licenseKey = stringAt(body, "license_key").trim();
@@ -570,7 +570,7 @@ async function activate(request: Request, env: Env, ctx: ExecutionContext, libra
   }
 
   if (library) {
-    const policy = (await libraryConfig(env)).products.find(p => p.id === product.id);
+    const policy = (await grantLibraryConfig(env)).products.find(p => p.id === product.id);
     if (!policy || policy.access !== "paid") throw new Error("Paid library product not configured");
     await env.LICENSE_DB.prepare("DELETE FROM launcher_license_expiry WHERE product_id=? AND license_hash=?").bind(product.id,licenseHash).run();
     await audit(env, request, product.id, "library_verified", licenseHash, installHash);
@@ -813,7 +813,7 @@ export default {
     if (request.method === "GET" && url.pathname === "/health") return json({ status: "ok" });
     if (request.method !== "POST") return json({ valid: false, status: "not_found", message: "Not found." }, 404);
     try {
-      const limiter = url.pathname === "/v1/activate" || url.pathname === "/v2/library/verify" || url.pathname === "/v2/library/policy" ? env.ACTIVATION_NETWORK_RATE_LIMITER
+      const limiter = url.pathname === "/v1/activate" || url.pathname === "/v2/library/verify" || url.pathname === "/v2/library/policy" || url.pathname === "/v3/library/policy" ? env.ACTIVATION_NETWORK_RATE_LIMITER
         : url.pathname === "/v1/heartbeat" || url.pathname === "/v1/deactivate" || url.pathname === "/v2/algorithms/prepare" || url.pathname === "/v2/firmware/prepare" ? env.SESSION_NETWORK_RATE_LIMITER
         : url.pathname === "/discord/interactions" ? env.DISCORD_NETWORK_RATE_LIMITER : null;
       if (!limiter) return json({ valid: false, status: "not_found", message: "Not found." }, 404);
@@ -825,11 +825,13 @@ export default {
         return json({ valid: false, status: "rate_limited", message: "Too many requests. Please try again later." }, 429);
       }
       if (url.pathname === "/discord/interactions") return await handleDiscord(request, env);
-      if (url.pathname === "/v2/library/policy") {
+      // v2: every launcher (free/paid only); v3: launcher 0.4.1+ (channel 2, any_of).
+      if (url.pathname === "/v2/library/policy" || url.pathname === "/v3/library/policy") {
         const body = await readLicenseBody(request);
         requireSignedRequest(body, env);
         if (body.product_id !== "verux.launcher") throw new RequestFailure(400,"invalid_product","Invalid library request.");
-        return signResponse(json({valid:true,status:"valid",library:await libraryConfig(env)}),body,env,url.pathname);
+        const channel = url.pathname === "/v3/library/policy" ? 2 : 1;
+        return signResponse(json({valid:true,status:"valid",library:await libraryConfig(env, channel)}),body,env,url.pathname);
       }
       const interval = Number(env.HEARTBEAT_INTERVAL_SECONDS);
       const ttl = Number(env.SESSION_TTL_SECONDS);

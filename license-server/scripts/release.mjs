@@ -7,6 +7,11 @@ import {assertCanonicalWorkspace} from './canonical-workspace.mjs';
 
 const LIMIT=2*1024*1024*1024;
 const prefix=Buffer.concat([Buffer.from('VERUX-RELEASE-CATALOG-V1'),Buffer.from([10])]);
+// Channel 1 serves every launcher; channel 2 (VERUX_RELEASE_CHANNEL=2) serves
+// launcher 0.4.1+ and allows visibility, prerequisites, tools and any_of.
+const CHANNEL=process.env.VERUX_RELEASE_CHANNEL==='2'?2:1;
+const CATALOG=CHANNEL===2?'catalog/v2/':'catalog/';
+const LIBRARY=CHANNEL===2?'library/v2/current.json':'library/current.json';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=m=>{throw new Error(m)};
 const hash=s=>typeof s==='string' && /^[a-f0-9]{64}$/.test(s);
@@ -38,19 +43,24 @@ export function validate(c){
  asset(c.banner,8*1024*1024);if(c.banner.namespace!=='_shell')fail('Invalid brand namespace');
  const ids=new Set(),upgrades=new Set(),dirs=[],services=new Set();
  for(const p of [...c.products,...(c.launcher?[c.launcher]:[])]){
-  fields(p,['id','title','requisites','thumbnail','banner','release',...('replacement_service' in p?['replacement_service']:[]),...('service_file' in p?['service_file']:[])]);
+  const extra=CHANNEL===2?['visibility','prerequisites','tools'].filter(k=>k in p):[];
+  const visibility=p.visibility??'card';
+  if(!['card','hidden','tool'].includes(visibility)||(p===c.launcher&&visibility!=='card'))fail('Invalid visibility');
+  const art=visibility==='card'?['thumbnail','banner']:['thumbnail','banner'].filter(k=>k in p);
+  fields(p,['id','title','requisites',...art,'release',...extra,...('replacement_service' in p?['replacement_service']:[]),...('service_file' in p?['service_file']:[])]);
   if('service_file' in p&&(!p.replacement_service||!relative(p.service_file)||!p.release.files.some(f=>f.path===p.service_file)))fail('Invalid service file');
   if('replacement_service' in p&&(typeof p.replacement_service!=='string'||!/^[A-Za-z0-9_.-]{1,64}$/.test(p.replacement_service)))fail('Invalid replacement service');
   if(p.replacement_service){const service=p.replacement_service.toLowerCase();if(services.has(service))fail('Products cannot claim the same driver service');services.add(service);}
   if(!id(p.id)||ids.has(p.id)||!text(p.title,80)||!Array.isArray(p.requisites)||p.requisites.length>16||!p.requisites.every(s=>text(s,160)))fail('Invalid product');
-  ids.add(p.id);asset(p.thumbnail,8*1024*1024);asset(p.banner,8*1024*1024);
+  ids.add(p.id);if(p.thumbnail)asset(p.thumbnail,8*1024*1024);if(p.banner)asset(p.banner,8*1024*1024);
   const r=p.release;
   fields(r,['version','package','product_code','upgrade_code','directory','executable','executable_sha256','files','min_windows_build','architecture']);
-  version(r.version);asset(r.package,LIMIT);if([p.thumbnail,p.banner,r.package].some(a=>a.namespace!==p.id))fail('Cross-product artifact rejected');
+  version(r.version);asset(r.package,LIMIT);if([p.thumbnail,p.banner,r.package].filter(Boolean).some(a=>a.namespace!==p.id))fail('Cross-product artifact rejected');
+  const driverOnly=visibility==='hidden'&&r.executable==null&&r.executable_sha256==null;
   const directory=typeof r.directory==='string'?r.directory.toLowerCase():'';
   if(!guid(r.product_code)||!guid(r.upgrade_code)||upgrades.has(r.upgrade_code.toUpperCase())||!relative(r.directory)||
   dirs.some(d=>d===directory||d.startsWith(directory+'/')||directory.startsWith(d+'/'))||
-  !relative(r.executable)||!r.executable.toLowerCase().endsWith('.exe')||!hash(r.executable_sha256)||
+  (!driverOnly&&(!relative(r.executable)||!r.executable.toLowerCase().endsWith('.exe')||!hash(r.executable_sha256)))||
   !Number.isInteger(r.min_windows_build)||r.min_windows_build<17763||r.architecture!=='x64'||
   !Array.isArray(r.files)||r.files.length<1||r.files.length>512)fail('Invalid release contract');
   upgrades.add(r.upgrade_code.toUpperCase());dirs.push(directory);
@@ -60,7 +70,16 @@ export function validate(c){
    if(!relative(f.path)||!hash(f.sha256)||paths.has(f.path.toLowerCase()))fail('Invalid installed file');
    paths.add(f.path.toLowerCase());
   }
-  if(!r.files.some(f=>f.path===r.executable&&f.sha256===r.executable_sha256))fail('Executable absent from file manifest');
+  if(!driverOnly&&!r.files.some(f=>f.path===r.executable&&f.sha256===r.executable_sha256))fail('Executable absent from file manifest');
+ }
+ // Channel 2 cross-references: prerequisites are hidden products without
+ // prerequisites of their own; tools are tool products; only cards list tools.
+ const all=[...c.products,...(c.launcher?[c.launcher]:[])],byId=new Map(all.map(p=>[p.id,p]));
+ for(const p of all){
+  const pre=p.prerequisites??[],tools=p.tools??[];
+  if(!Array.isArray(pre)||pre.length>8||!Array.isArray(tools)||tools.length>4)fail('Invalid prerequisites or tools');
+  for(const id of pre){const q=byId.get(id);if(!q||q.visibility!=='hidden'||(q.prerequisites??[]).length)fail('Invalid prerequisite '+id);}
+  for(const t of tools){fields(t,['id','label']);const q=byId.get(t.id);if(!q||q.visibility!=='tool'||!text(t.label,24)||(p.visibility??'card')!=='card')fail('Invalid tool '+t.id);}
  }
 }
 async function fileHash(path){const h=createHash('sha256');for await(const part of createReadStream(path))h.update(part);return h.digest('hex');}
@@ -116,9 +135,12 @@ async function prepare(sourcePath,outPath){
   r.package=await add(r.package,'msi','package',p.id);
   if(!Array.isArray(r.files))fail('Provide the installed file list with local source paths');
   r.files=await Promise.all(r.files.map(async f=>({path:f.path,sha256:await fileHash(await sourceFile(f.source))})));
-  const exe=r.files.find(f=>f.path===r.executable)||fail('Executable missing from files');
-  r.executable_sha256=exe.sha256;
-  return {...p,thumbnail:await add(p.thumbnail,'png',launcher?'launcher':'thumbnail',p.id),banner:await add(p.banner,'png','banner',p.id),release:r};
+  if(r.executable==null){r.executable=null;r.executable_sha256=null;}
+  else{const exe=r.files.find(f=>f.path===r.executable)||fail('Executable missing from files');r.executable_sha256=exe.sha256;}
+  const out={...p,release:r};
+  if(p.thumbnail)out.thumbnail=await add(p.thumbnail,'png',launcher?'launcher':'thumbnail',p.id);else delete out.thumbnail;
+  if(p.banner)out.banner=await add(p.banner,'png','banner',p.id);else delete out.banner;
+  return out;
  }
  for(const p of source.products)catalog.products.push(await product(p));
  if(source.launcher)catalog.launcher=await product(source.launcher,true);
@@ -182,7 +204,7 @@ async function publish(folder){
  const root=resolve(folder),key=createPublicKey(await readPrivate());
  const envelope=await readFile(join(root,'catalog.json'));
  const catalog=await checkEnvelope(envelope,key);
- const previous=await s3('GET','catalog/current.json');
+ const previous=await s3('GET',CATALOG+'current.json');
  let etag=null;
  if(previous.status===200){
   etag=previous.headers.get('etag')||fail('Current catalog lacks ETag');
@@ -209,18 +231,18 @@ async function publish(folder){
  const add=(a,ext)=>objects.set(a.namespace+'/'+a.sha256+'.'+ext,a);
  add(catalog.banner,'png');
  for(const p of [...catalog.products,...(catalog.launcher?[catalog.launcher]:[])]){
-  add(p.thumbnail,'png');add(p.banner,'png');add(p.release.package,'msi');
+  if(p.thumbnail)add(p.thumbnail,'png');if(p.banner)add(p.banner,'png');add(p.release.package,'msi');
  }
  for(const [name,a] of objects){
   const path=join(root,'objects',name),s=await stat(path);
   if(s.size!==a.size||await fileHash(path)!==a.sha256)fail('Prepared artifact changed: '+name);
   await immutable('objects/'+name,path);
  }
- await immutable('catalog/history/'+catalog.revision+'.json',join(root,'catalog.json'));
- const result=await s3('PUT','catalog/current.json',join(root,'catalog.json'),etag?{'if-match':etag}:{'if-none-match':'*'});
+ await immutable(CATALOG+'history/'+catalog.revision+'.json',join(root,'catalog.json'));
+ const result=await s3('PUT',CATALOG+'current.json',join(root,'catalog.json'),etag?{'if-match':etag}:{'if-none-match':'*'});
  if(!result.ok)fail('Catalog commit rejected ('+result.status+'); prior ETag '+etag+', encoding '+previous.headers.get('content-encoding')+'. Inspect current revision before retrying.');
  await result.body?.cancel();
- console.log('Published catalog revision '+catalog.revision);
+ console.log('Published channel '+CHANNEL+' catalog revision '+catalog.revision);
 }
 async function main(){
  const [command,a,b]=process.argv.slice(2);
@@ -239,24 +261,26 @@ async function main(){
   if(c.schema!==1||!Array.isArray(c.products)||!Array.isArray(c.notices)||c.products.length>65||c.notices.length>32)fail('Invalid library metadata');
   const ids=new Set(),dirs=new Set(),noticeIds=new Set();
   for(const p of c.products){
-   fields(p,['id','access','purchase_url','directory','entropy']);
-   if(!id(p.id)||ids.has(p.id)||!['free','paid'].includes(p.access))fail('Invalid library product');ids.add(p.id);
+   fields(p,['id','access','purchase_url','directory','entropy',...(p.access==='any_of'?['any_of']:[])]);
+   if(!id(p.id)||ids.has(p.id)||!(CHANNEL===2?['free','paid','any_of']:['free','paid']).includes(p.access))fail('Invalid library product');ids.add(p.id);
    if(p.access==='paid'){
     const url=new URL(p.purchase_url);
     if(url.protocol!=='https:'||url.username||url.password||url.hash||!/^\w[\w-]{0,63}$/.test(p.directory)||!relative(p.directory)||dirs.has(p.directory.toLowerCase())||!/^[a-z0-9-]{1,100}$/.test(p.entropy))fail('Invalid paid product metadata');
     dirs.add(p.directory.toLowerCase());
-   }else if(p.purchase_url!==''||p.directory!==''||p.entropy!=='')fail('Free products must not have license storage');
+   }else if(p.purchase_url!==''||p.directory!==''||p.entropy!=='')fail('Free and any_of products must not have license storage');
+   if(p.access==='any_of'&&(!Array.isArray(p.any_of)||p.any_of.length<1||p.any_of.length>8))fail('Invalid any_of list');
   }
+  for(const p of c.products)if(p.access==='any_of'&&p.any_of.some(x=>!c.products.some(q=>q.id===x&&q.access==='paid')))fail('any_of must list paid products');
   if(!c.products.some(p=>p.id==='verux.launcher'&&p.access==='free'))fail('Launcher self-update must remain free');
   for(const n of c.notices){fields(n,['id','product_id','title','text']);if(!id(n.id)||noticeIds.has(n.id)||(n.product_id!==null&&!ids.has(n.product_id))||!text(n.title,320)||n.title.length>80||typeof n.text!=='string'||!n.text.trim()||n.text.length>4000||Buffer.byteLength(n.text)>16000||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(n.text))fail('Invalid notice');noticeIds.add(n.id);}
-  const old=await s3('GET','library/current.json');
+  const old=await s3('GET',LIBRARY);
   if(old.status!==200&&old.status!==404)fail('Read library failed');
   const etag=old.headers.get('etag');await old.body?.cancel();
   if(old.status===200&&!etag)fail('Library ETag missing');
   if(etag?.startsWith('W/'))fail('Library has a weak ETag; inspect release transport encoding');
-  const result=await s3('PUT','library/current.json',file,etag?{'if-match':etag}:{'if-none-match':'*'});
+  const result=await s3('PUT',LIBRARY,file,etag?{'if-match':etag}:{'if-none-match':'*'});
   await result.body?.cancel();if(!result.ok)fail('Library publication rejected: '+result.status);
-  console.log('Published library metadata ('+c.notices.length+' notices).');
+  console.log('Published channel '+CHANNEL+' library metadata ('+c.notices.length+' notices).');
  }
  else if(command==='validate'){
   const key=createPublicKey(await readPrivate());
@@ -266,7 +290,7 @@ async function main(){
 async function renew(folder,outFolder){
  const root=resolve(folder),out=resolve(outFolder),key=await readPrivate(),publicKey=createPublicKey(key);
  const envelope=await readFile(join(root,'catalog.json'));
- const remote=await s3('GET','catalog/current.json');
+ const remote=await s3('GET',CATALOG+'current.json');
  if(!remote.ok)fail('Read current catalog failed: '+remote.status);
  let total=0;const chunks=[];
  for await(const chunk of remote.body){total+=chunk.length;if(total>1024*1024)fail('Published catalog exceeds size limit');chunks.push(chunk);}
@@ -278,7 +302,7 @@ async function renew(folder,outFolder){
  c.revision+=1;c.issued_at=Math.floor(Date.now()/1000);c.expires_at=c.issued_at+ttl;validate(c);
  const objects=new Map();const add=(asset,ext)=>objects.set(asset.namespace+'/'+asset.sha256+'.'+ext,asset);
  add(c.banner,'png');
- for(const p of [...c.products,...(c.launcher?[c.launcher]:[])]){add(p.thumbnail,'png');add(p.banner,'png');add(p.release.package,'msi');}
+ for(const p of [...c.products,...(c.launcher?[c.launcher]:[])]){if(p.thumbnail)add(p.thumbnail,'png');if(p.banner)add(p.banner,'png');add(p.release.package,'msi');}
  await mkdir(out,{recursive:false});
  for(const [name,asset] of objects){
   const from=join(root,'objects',name),to=join(out,'objects',name);

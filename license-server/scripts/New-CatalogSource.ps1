@@ -18,7 +18,9 @@ function Import-Product([string]$Path) {
     $sourceRoot=Split-Path -Parent $full
     $product=Get-Content -Raw -LiteralPath $full | ConvertFrom-Json
     if ($product.id -cnotmatch '^[a-z0-9][a-z0-9.-]{0,63}$' -or -not $ids.Add($product.id)) {throw 'Invalid or duplicate product ID.'}
-    if (-not $product.thumbnail -or -not $product.banner) {throw "Supply approved thumbnail and banner paths in $full before creating a catalog."}
+    # Cards need both pictures; hidden and tool items (channel 2) may have none.
+    $visibility=if ($product.PSObject.Properties['visibility']) {$product.visibility} else {'card'}
+    if ($visibility -eq 'card' -and (-not $product.thumbnail -or -not $product.banner)) {throw "Supply approved thumbnail and banner paths in $full before creating a catalog."}
     function Copy-Source([string]$Relative) {
         if (-not $Relative -or $Relative -match '[\:]' -or @($Relative.Split('/') | Where-Object {$_ -in @('','.', '..')}).Count) {throw "Unsafe source path: $Relative"}
         $source=[IO.Path]::GetFullPath((Join-Path $sourceRoot $Relative))
@@ -34,8 +36,8 @@ function Import-Product([string]$Path) {
         if (-not (Test-Path -LiteralPath $target)) {Copy-Item -LiteralPath $source -Destination $target}
         return $targetRelative
     }
-    $product.thumbnail=Copy-Source $product.thumbnail
-    $product.banner=Copy-Source $product.banner
+    if ($product.thumbnail) {$product.thumbnail=Copy-Source $product.thumbnail}
+    if ($product.banner) {$product.banner=Copy-Source $product.banner}
     $product.release.package=Copy-Source $product.release.package
     foreach ($file in $product.release.files) {$file.source=Copy-Source $file.source}
     return $product

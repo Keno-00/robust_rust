@@ -20,8 +20,9 @@ export async function launcherRequest(request: Request, env: LauncherEnv): Promi
   if (!(await env.RELEASE_RATE_LIMITER.limit({ key: request.headers.get("CF-Connecting-IP") || "missing-edge-ip" })).success) {
     return fail(429, "rate_limited");
   }
-    if (path === "/launcher/v1/catalog") {
-      const catalog = await env.RELEASE_ARTIFACTS.get("catalog/current.json");
+    // v1: every launcher; v2: launcher 0.4.1+ (prerequisites, tools, any_of).
+    if (path === "/launcher/v1/catalog" || path === "/launcher/v2/catalog") {
+      const catalog = await env.RELEASE_ARTIFACTS.get(path === "/launcher/v2/catalog" ? "catalog/v2/current.json" : "catalog/current.json");
       if (!catalog) return fail(503, "catalog_not_published");
       if (catalog.size > 1024 * 1024) return fail(503, "catalog_oversized");
       return new Response(catalog.body, {

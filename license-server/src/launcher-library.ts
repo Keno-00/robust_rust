@@ -19,14 +19,25 @@ export interface LibraryProduct {
 }
 export interface Notice { id: string; product_id: string | null; title: string; text: string }
 export interface LibraryConfig { schema: number; products: LibraryProduct[]; notices: Notice[] }
-export async function libraryConfig(env: LibraryEnv): Promise<LibraryConfig> {
-  const object = await env.RELEASE_ARTIFACTS?.get("library/current.json");
+/** Channel 1: `library/current.json` (all launchers). Channel 2:
+ *  `library/v2/current.json` (launcher 0.4.1+, may use any_of). */
+export const LIBRARY_KEYS = { 1: "library/current.json", 2: "library/v2/current.json" } as const;
+
+/** Policy for license checks and package grants: channel 2 once published
+ *  (a superset of channel 1), channel 1 before that. */
+export async function grantLibraryConfig(env: LibraryEnv): Promise<LibraryConfig> {
+  const v2 = await env.RELEASE_ARTIFACTS?.head(LIBRARY_KEYS[2]);
+  return libraryConfig(env, v2 ? 2 : 1);
+}
+
+export async function libraryConfig(env: LibraryEnv, channel: 1 | 2 = 1): Promise<LibraryConfig> {
+  const object = await env.RELEASE_ARTIFACTS?.get(LIBRARY_KEYS[channel]);
   if (!object || object.size > 65536) throw new RequestFailure(503, "library_not_configured", "Library configuration is unavailable.");
   const c: LibraryConfig = JSON.parse(await boundedText(new Response(object.body), 65536));
   const ids = new Set<string>(), notices = new Set<string>();
   if (c.schema !== 1 || !Array.isArray(c.products) || c.products.length > 65 || !Array.isArray(c.notices) || c.notices.length > 32) throw new Error("Invalid library configuration");
   for (const p of c.products) {
-    if (!/^[a-z0-9][a-z0-9.-]{0,63}$/.test(p.id) || ids.has(p.id) || !["free", "paid", "any_of"].includes(p.access)) throw new Error("Invalid library product");
+    if (!/^[a-z0-9][a-z0-9.-]{0,63}$/.test(p.id) || ids.has(p.id) || !(channel === 2 ? ["free", "paid", "any_of"] : ["free", "paid"]).includes(p.access)) throw new Error("Invalid library product");
     ids.add(p.id);
     if (p.access === "paid" && (!/^https:\/\/[^\s]+$/.test(p.purchase_url) || !/^[A-Za-z0-9_-]{1,64}$/.test(p.directory) || !/^[a-z0-9-]{1,100}$/.test(p.entropy))) throw new Error("Invalid library license metadata");
     if (p.access === "paid") { const url = new URL(p.purchase_url); if (url.username || url.password || url.hash) throw new Error("Invalid purchase URL"); }
@@ -56,7 +67,7 @@ export async function downloadGrant(env: LibraryEnv, product: string, license: s
   return encode64(bytes) + "." + encode64(new Uint8Array(await crypto.subtle.sign("HMAC", await tokenKey(env, ["sign"]), bytes)));
 }
 export async function authorizePackage(request: Request, env: LibraryEnv, product: string): Promise<boolean> {
-  const p = (await libraryConfig(env)).products.find(p => p.id === product);
+  const p = (await grantLibraryConfig(env)).products.find(p => p.id === product);
   if (!p) throw new RequestFailure(503, "product_access_not_configured", "Product access is unavailable.");
   if (p.access === "free") return true;
   if (env.APP_ENABLED !== "true") return false;
