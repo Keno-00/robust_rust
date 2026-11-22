@@ -22,7 +22,7 @@ APB_SURFACE_ELIGIBILITY_DIGEST = "0bdeb9e0a251187d037287df6013430cecbba9b984e20d
 APB_SURFACE_OBJECTS_DIGEST = "1a53e1ac72a4ba91d847b58c5f30dd6595532241117aeda778b8066e94e77e2e"
 APB_SURFACE_DIGEST = "2c7deacdaa787988e375e35d74bad2a6d94734efa76fc52194649b1b8b71e773"
 # Verified template; delivery personalizes only its reviewed USB VID/PID descriptor bytes.
-LEONARDO_FIRMWARE_TEMPLATE = '{"version":"1.0.0-candidate.3","digest":"c32de7e70870c325450efa91ae49f94f00bcfaa085b19c349ba53d36ebaac309","descriptor_offset":370}'
+LEONARDO_FIRMWARE_TEMPLATE = '{"version":"1.0.0-candidate.4","digest":"f1588ab9abcb38731168b6cd682fd2054a358d50c188a94e03c270e6feecfb36","descriptor_offset":370}'
 APP_ENABLED = "true"
 APB_PAYHIP_PRODUCT_NAMES = "verux.apb"
 APB_CB_PAYHIP_PRODUCT_NAMES = "verux.apb.cb"

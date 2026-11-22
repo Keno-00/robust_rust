@@ -1,5 +1,18 @@
 # Launcher release workflow
 
+## Current release (2026-11-23, launcher 0.4.0; Worker bd6abe7d; Leonardo 2.0 template)
+
+- **Catalog revision 250** publishes launcher 0.4.0 next to the unchanged APB 2.1.8 (product fields 0.3.x accepts, so 0.3.x launchers self-update).
+  - Launcher MSI: `target/packages/launcher-0.4.0`.
+  - Source: `target/packages/launcher-live-source-r250`.
+  - The prepared catalog passed `release.mjs validate` and the built launcher's `--verify-catalog` (exit 0).
+  - Launcher 0.4.0 supports hidden prerequisites, tool buttons and `any_of` access (verux_launcher 8f6c2b8; contract `docs/LAUNCHER_PREREQUISITES_AND_TOOLS.md`).
+- **Worker `bd6abe7d-ec63-46b9-b0f0-fe92ee630d59`**: `any_of`/`grant_for`, Songmaker firmware sessions, and `LEONARDO_FIRMWARE_TEMPLATE` set to the Leonardo 2.0 template.
+  - Template: candidate.4, SHA-256 `f1588ab9…eecfb36`, offset 370.
+  - Uploaded to `verux-algorithm-artifacts/verux.apb/firmware/leonardo/template/1.0.0-candidate.4/`. A download matched the hash.
+- **Not yet published:** `library.source.next.json` and the catalog with `verux.echodriver`, `verux.leonardo`, `verux.sm` and APB 2.1.9. 0.3.x launchers reject those fields, so they follow once launchers have updated to 0.4.0.
+- **Installs:** launcher 0.4.0 install and self-update were not qualified on a test PC. The EchoDriver migration was qualified on the operator's PC by running the MSIs directly (see the contract).
+
 ## Current release (2026-11-03, APB 2.1.8)
 
 Catalog revision 130 publishes APB 2.1.8 alongside launcher 0.3.2. 2.1.8 lets users share ML models (`.vxmodel`) and configs (`.vxprofile`) as plain files: Export/Import buttons, plus a window drop handler (drops onto the elevated window depend on Windows allowing them and were not confirmed). See `docs/ML_AIM.md`. The MSI is `target/packages/apb-launcher-2.1.8/packages/verux.apb-2.1.8.msi`, SHA-256 `5e3f4b77…`; catalog source `target/packages/launcher-live-source-r130`, built from the revision 115 source (live APB 2.1.7, launcher 0.3.2). Driver payload is byte-identical to 2.1.4 except the recompiled `DriverInstaller.exe`. Installing or upgrading with this MSI was not qualified on a test PC before publication.
