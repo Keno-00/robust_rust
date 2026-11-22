@@ -66,3 +66,23 @@ Decisions the server/catalog side must match. Each is open for objection here.
   3. **The launcher must start EchoDriver again at the end of the flow** if it is stopped. Otherwise the check shows STOPPED.
   APB first would be wrong: the upgrade deletes the old driver file, and the later takeover's journal check fails ("Original driver changed").
 - **Launcher:** a `hidden` product's `release.executable` may be null; it is never launched.
+
+## Built packages and publication order (each step needs operator approval)
+
+Built locally in `target/packages`:
+
+| Package | Version | Notes |
+| --- | --- | --- |
+| `verux.echodriver-1.0.0` | 1.0.0 | `hidden`, driver only |
+| `apb-launcher-2.1.9` | 2.1.9 | APB 2.1.8 client, no driver, EchoDriver prerequisite, LEONARDO tool |
+| `verux.sm-2.0.0` | 2.0.0 | Songmaker, EchoDriver prerequisite, LEONARDO tool |
+| `verux.leonardo-2.0.0` | 2.0.0 | `tool`, installer plus pinned AVRDUDE |
+
+Order:
+
+1. **Test PC qualification:** fresh installs of APB and Songmaker, and the APB 2.1.8 → 2.1.9 upgrade with the EchoDriver takeover and restart. Run them with launcher 0.4.0 against a non-production catalog.
+2. **Publish launcher 0.4.0** through the current catalog and policy, which 0.3.x launchers accept.
+3. **Deploy the Worker** (robust_rust 3e40edf and later): `any_of`, `grant_for`, Songmaker firmware sessions.
+4. **Upload the candidate.4 firmware template** and switch `LEONARDO_FIRMWARE_TEMPLATE` to it.
+5. **Publish `library.source.next.json`** as the library policy.
+6. **Publish the catalog** with `verux.echodriver`, `verux.leonardo`, `verux.sm` and APB 2.1.9.
