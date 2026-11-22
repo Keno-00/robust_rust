@@ -86,3 +86,24 @@ Order:
 4. **Upload the candidate.4 firmware template** and switch `LEONARDO_FIRMWARE_TEMPLATE` to it.
 5. **Publish `library.source.next.json`** as the library policy.
 6. **Publish the catalog** with `verux.echodriver`, `verux.leonardo`, `verux.sm` and APB 2.1.9.
+
+## Qualification on the operator's PC (2026-11-23)
+
+Started from APB **2.1.7** with the driver under `VeruxAPB\Driver`. Logs: `target/qualification/`.
+
+1. EchoDriver 1.0.0 takeover with `VERUX_REPLACE_EXISTING=1`: exit 0. The service moved to `VeruxEcho\Driver` and kept running; journal committed.
+2. APB 2.1.9 upgrade: **failed, 1603, rolled back**. The **installed 2.1.7 package** runs its own launch condition while it is removed ("EchoDriver belongs to another installation") and refuses. Properties such as `VERUX_REPLACE_EXISTING` do not reach the old product's removal. **An in-place upgrade after a takeover is impossible for APB ≤ 2.1.8.**
+3. Recovery and the working order:
+   1. Uninstall EchoDriver (removes the service).
+   2. Uninstall APB 2.1.7 (exit 0).
+   3. Install EchoDriver fresh (exit 0, running from `VeruxEcho`).
+   4. Install APB 2.1.9 (exit 0).
+4. Result: EchoDriver 1.0.0 and APB 2.1.9 installed, the service running from `VeruxEcho`, `\.\EchoDevice` opening elevated, and the 32-byte transport key retained. A full Echo read through APB was not run, because APB was not open.
+
+**Migration rule for the launcher (replaces Q6):** when an installed product owns the EchoDriver service in its own folder (APB ≤ 2.1.8, `ImagePath` under `VeruxAPB\Driver`):
+
+1. Uninstall that product first. Its own uninstall removes its driver cleanly and keeps the Documents profile.
+2. Install `verux.echodriver`.
+3. Install the new product version.
+
+Never take the service over while such a product is installed. Fresh machines simply install the prerequisite first.
