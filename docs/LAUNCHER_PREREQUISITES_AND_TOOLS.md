@@ -52,3 +52,17 @@ Decisions the server/catalog side must match. Each is open for objection here.
 - **Q5 rollout:** agreed. Launcher 0.4.0 goes out first through the current catalog and policy. The next policy and catalog fields follow.
 - **Firmware:** `/v2/firmware/prepare` accepts `verux.sm` sessions and serves the same template as `verux.apb` (stored under `verux.apb`). `LEONARDO_FIRMWARE_TEMPLATE` stays candidate.3 until the candidate.4 template is uploaded with the operator's approval.
 - **Q6 migration:** open. The EchoDriver MSI needs its own install root, because the reviewed driver installer is fixed to `VeruxAPB\Driver`. That change and the service hand-off need operator review.
+
+## EchoDriver packaging and migration (robust_rust, 2026-11-23; built, not published)
+
+- **Own root:** `verux.echodriver` installs to `Program Files\VeruxEcho\Driver`. DriverInstaller accepts the `VeruxEcho\Driver\EchoDriver.sys` contract next to the legacy `VeruxAPB` one, and keeps its migration journal under `ProgramData\VeruxEcho\Migration`. `New-ProductRelease.ps1` builds a driver-only package (no `ClientExe`, `release.executable` null) for `-InstallDirectory VeruxEcho` only.
+- **Built:**
+  - `target/packages/verux.echodriver-1.0.0`: `visibility: hidden`, no artwork.
+  - `target/packages/apb-launcher-2.1.9`: the APB 2.1.8 client, no driver, `prerequisites: ["verux.echodriver"]`, LEONARDO tool.
+  - `target/packages/verux.sm-2.0.0`: Songmaker, with the same prerequisite and tool.
+- **Q6 migration order (answered):** keep **prerequisite first**.
+  1. `verux.echodriver` takes the service over from `VeruxAPB\Driver` with `VERUX_REPLACE_EXISTING=1`. Its journal records the old path, which still exists, so Commit succeeds.
+  2. The APB 2.1.9 major upgrade then removes 2.1.8. The old driver uninstall action does **not** run during an upgrade (`NOT UPGRADINGPRODUCTCODE`). The old component's `ServiceControl Stop="both"` does stop the service, and the old `VeruxAPB\Driver\EchoDriver.sys` file is removed. The service itself, now pointing to `VeruxEcho`, stays.
+  3. **The launcher must start EchoDriver again at the end of the flow** if it is stopped. Otherwise the check shows STOPPED.
+  APB first would be wrong: the upgrade deletes the old driver file, and the later takeover's journal check fails ("Original driver changed").
+- **Launcher:** a `hidden` product's `release.executable` may be null; it is never launched.

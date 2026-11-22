@@ -340,7 +340,10 @@ internal static class DriverInstaller {
                 Console.WriteLine("Secure Boot is off and driver test signing is on."); return 0;
             }
             source = Path.GetFullPath(args[1]); Ordinary(source);
-            root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), @"VeruxAPB\Migration"); journalPath = Path.Combine(root, "EchoDriver.json");
+            // The migration journal lives beside the package's own install root
+            // (VeruxAPB for the legacy APB package, VeruxEcho for verux.echodriver).
+            string journalOwner = File.Exists(Path.Combine(source, "driver.json")) && File.ReadAllText(Path.Combine(source, "driver.json")).Contains("VeruxEcho") ? "VeruxEcho" : "VeruxAPB";
+            root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), journalOwner + @"\Migration"); journalPath = Path.Combine(root, "EchoDriver.json");
             if (args[0] == "EnableTestSigning") {
                 using (WindowsIdentity identity = WindowsIdentity.GetCurrent()) if (!new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator)) throw new InvalidOperationException("Administrator privileges required.");
                 string logParent = Path.GetDirectoryName(root); ApplicationDirectory(logParent);
@@ -354,7 +357,7 @@ internal static class DriverInstaller {
             string manifest = Path.Combine(uninstallCompletion ? root : source, "driver.json"); Ordinary(manifest);
             if (new FileInfo(manifest).Length > 65536) throw new InvalidOperationException("Driver contract too large.");
             contract = Json.Deserialize<Contract>(File.ReadAllText(manifest));
-            if (contract == null || contract.service != "EchoDriver" || contract.destination != @"VeruxAPB\Driver\EchoDriver.sys" || new[] { contract.driver_sha256, contract.certificate_sha256, contract.key_script_sha256 }.Any(s => s == null || s.Length != 64 || s.Any(c => !Uri.IsHexDigit(c))) || contract.certificate_thumbprint == null || contract.certificate_thumbprint.Length != 40) throw new InvalidOperationException("Driver contract rejected.");
+            if (contract == null || contract.service != "EchoDriver" || (contract.destination != @"VeruxAPB\Driver\EchoDriver.sys" && contract.destination != @"VeruxEcho\Driver\EchoDriver.sys") || new[] { contract.driver_sha256, contract.certificate_sha256, contract.key_script_sha256 }.Any(s => s == null || s.Length != 64 || s.Any(c => !Uri.IsHexDigit(c))) || contract.certificate_thumbprint == null || contract.certificate_thumbprint.Length != 40) throw new InvalidOperationException("Driver contract rejected.");
             managed = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), contract.destination);
             if (args[0] == "Inspect") { using (X509Certificate2 certificate = ValidatePayload()) { VerifySignature(Path.Combine(source, "EchoDriver.sys")); } Console.WriteLine("Driver payload and signer verified."); return 0; }
             using (WindowsIdentity identity = WindowsIdentity.GetCurrent()) if (!new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator)) throw new InvalidOperationException("Administrator privileges required.");

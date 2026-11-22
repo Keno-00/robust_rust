@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^[a-z0-9][a-z0-9.-]{0,63}$')][string]$ProductId,
     [Parameter(Mandatory)][string]$Title,
     [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version,
-    [Parameter(Mandatory)][string]$ClientExe,
+    # Optional only for the driver-only verux.echodriver package.
+    [string]$ClientExe,
     [string]$Thumbnail,
     [string]$Banner,
     [Parameter(Mandatory)][string]$OutputDirectory,
@@ -26,8 +27,9 @@ $segments = $InstallDirectory.Split('/')
 if ($segments.Count -eq 0 -or @($segments | Where-Object { $_ -notmatch '^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$' -or $_.EndsWith('.') }).Count -gt 0) { throw 'Use an ordinary relative installation directory under Program Files.' }
 $versionParts = $Version.Split('.') | ForEach-Object { [int]$_ }
 if ($versionParts.Count -ne 3 -or $versionParts[0] -gt 255 -or $versionParts[1] -gt 255 -or $versionParts[2] -gt 65535) { throw 'Version exceeds MSI limits.' }
-$client = (Resolve-Path -LiteralPath $ClientExe).Path
-if ([IO.Path]::GetExtension($client) -ine '.exe') { throw 'ClientExe must be an EXE.' }
+if (-not $ClientExe -and -not ($DriverFolder -and $InstallDirectory -ceq 'VeruxEcho')) { throw 'ClientExe is required (only the driver-only VeruxEcho package has none).' }
+$client = if ($ClientExe) { (Resolve-Path -LiteralPath $ClientExe).Path } else { $null }
+if ($client -and [IO.Path]::GetExtension($client) -ine '.exe') { throw 'ClientExe must be an EXE.' }
 $thumbnailPath = if ($Thumbnail) { (Resolve-Path -LiteralPath $Thumbnail).Path } else { $null }
 $bannerPath = if ($Banner) { (Resolve-Path -LiteralPath $Banner).Path } else { $null }
 if (Test-Path -LiteralPath $OutputDirectory) { throw 'OutputDirectory already exists. Use a new release directory.' }
@@ -44,19 +46,21 @@ $toolVersion = (& $compiler --version | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or $toolVersion -notmatch '^[4-9]\.') { throw 'A WiX 4+ build compiler is required. It is an authoring tool only; the customer launcher uses Windows Installer.' }
 $root = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Path $root, (Join-Path $root 'payload'), (Join-Path $root 'artwork'), (Join-Path $root 'packages') | Out-Null
-$exeName = [IO.Path]::GetFileName($client)
-Copy-Item -LiteralPath $client -Destination (Join-Path $root "payload/$exeName")
+$exeName = if ($client) { [IO.Path]::GetFileName($client) } else { $null }
+if ($client) { Copy-Item -LiteralPath $client -Destination (Join-Path $root "payload/$exeName") }
 if ($thumbnailPath) { Copy-Item -LiteralPath $thumbnailPath -Destination (Join-Path $root 'artwork/thumbnail.png') }
 if ($bannerPath) { Copy-Item -LiteralPath $bannerPath -Destination (Join-Path $root 'artwork/banner.png') }
 $files = [Collections.Generic.List[object]]::new()
-$files.Add(@{ path = $exeName; source = "payload/$exeName" })
+if ($client) { $files.Add(@{ path = $exeName; source = "payload/$exeName" }) }
 $components = [Collections.Generic.List[string]]::new()
 $refs = [Collections.Generic.List[string]]::new()
+if ($client) {
 $clientGuid = StableGuid "$ProductId/file/$exeName"
 $hasDesktopShortcut = $DesktopShortcut.IsPresent -or ($ProductId -eq 'verux.launcher')
 $shortcutXml = if ($hasDesktopShortcut) { '<Shortcut Id="ApplicationDesktopShortcut" Directory="DesktopFolder" Name="' + (Xml $Title) + '" WorkingDirectory="INSTALLFOLDER" Advertise="no" />' } else { '' }
 $components.Add('<Component Id="Client" Guid="' + $clientGuid + '"><File Id="ClientExe" Source="' + (Xml (Join-Path $root "payload/$exeName")) + '" KeyPath="yes">' + $shortcutXml + '</File></Component>')
 $refs.Add('<ComponentRef Id="Client"/>')
+}
 $extraDirectories = ''
 $driverActions = ''
 $driverSequence = ''
@@ -64,7 +68,9 @@ $driverProperties = ''
 if ($DriverFolder) {
     # This adapter intentionally preserves the repository's selected APB setup.
     # Other driver formats require their own reviewed package adapter, not a guessed command.
-    if ($InstallDirectory -cne 'VeruxAPB') { throw 'The existing APB Setup.ps1 owns Program Files/VeruxAPB/Driver. Use that exact installation root.' }
+    # VeruxAPB: the legacy APB package; VeruxEcho: the verux.echodriver product
+    # (docs/LAUNCHER_PREREQUISITES_AND_TOOLS.md).
+    if ($InstallDirectory -cne 'VeruxAPB' -and $InstallDirectory -cne 'VeruxEcho') { throw 'The driver package installs under Program Files/VeruxAPB or Program Files/VeruxEcho only.' }
     $driver = (Resolve-Path -LiteralPath $DriverFolder).Path
     foreach ($name in @('EchoDriver.sys','EchoDriver.cer','Setup.ps1','Initialize-TransportKey.ps1')) {
         if (-not (Test-Path -LiteralPath (Join-Path $driver $name) -PathType Leaf)) { throw "Missing real driver payload: $name" }
@@ -100,7 +106,7 @@ if ($DriverFolder) {
     $driverProperties+='<CustomAction Id="NtExpectedDriver" Property="NtExpectedDriverPath" Value="\??\[INSTALLFOLDER]Driver\EchoDriver.sys"/><CustomAction Id="RawNtExpectedDriver" Property="RawNtExpectedDriverPath" Value="#%\??\[INSTALLFOLDER]Driver\EchoDriver.sys"/>'
     $thumbprint=[regex]::Match($setupText,'\$thumbprint\s*=\s*''([A-Fa-f0-9]{40})''')
     if (-not $thumbprint.Success) {throw 'Cannot read the selected driver certificate identity.'}
-    $contract=@{service='EchoDriver';destination='VeruxAPB\Driver\EchoDriver.sys';driver_sha256=$recorded[0].Groups[1].Value;certificate_sha256=$recorded[1].Groups[1].Value;key_script_sha256=$recorded[2].Groups[1].Value;certificate_thumbprint=$thumbprint.Groups[1].Value}
+    $contract=@{service='EchoDriver';destination="$InstallDirectory\Driver\EchoDriver.sys";driver_sha256=$recorded[0].Groups[1].Value;certificate_sha256=$recorded[1].Groups[1].Value;key_script_sha256=$recorded[2].Groups[1].Value;certificate_thumbprint=$thumbprint.Groups[1].Value}
     $contractPath=Join-Path $root 'payload/DriverPackage/driver.json'
     [IO.File]::WriteAllText($contractPath,($contract|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
     $native=Join-Path $root 'payload/DriverPackage/DriverInstaller.exe'
