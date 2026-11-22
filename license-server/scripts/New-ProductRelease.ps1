@@ -11,6 +11,9 @@ param(
     [Parameter(Mandatory)][string]$InstallDirectory,
     [string[]]$Requisites = @(),
     [string]$DriverFolder,
+    # Files installed beside the client at the same relative paths
+    # (verux.leonardo: tools/avrdude).
+    [string]$ExtraFolder,
     [string]$WixPath = 'wix.exe',
     [switch]$DesktopShortcut
 )
@@ -127,6 +130,41 @@ if ($DriverFolder) {
     }
     $driverSequence='<Custom Action="ExpectedDriver" After="CostFinalize"/><Custom Action="QuotedDriver" After="ExpectedDriver"/><Custom Action="RawExpectedDriver" After="QuotedDriver"/><Custom Action="RawQuotedDriver" After="RawExpectedDriver"/><LaunchConditions After="RawQuotedDriver"/><Custom Action="RestoreUninstalledDriver" After="StopServices" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND EXISTINGDRIVERPATH"/><Custom Action="UninstallDriver" After="RestoreUninstalledDriver" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE"/><Custom Action="CommitUninstall" After="UninstallDriver" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE"/><Custom Action="RollbackNewDriver" After="InstallFiles" Condition="NOT REMOVE~=&quot;ALL&quot; AND NOT EXISTINGDRIVERPATH"/><Custom Action="RollbackMigration" After="InstallServices" Condition="NOT REMOVE~=&quot;ALL&quot;"/><Custom Action="InstallDriver" After="RollbackMigration" Condition="NOT REMOVE~=&quot;ALL&quot;"/><Custom Action="CommitMigration" After="InstallDriver" Condition="NOT REMOVE~=&quot;ALL&quot;"/>'
     $driverSequence=$driverSequence.Replace('<LaunchConditions After="RawQuotedDriver"/>','<Custom Action="NtExpectedDriver" After="RawQuotedDriver"/><Custom Action="RawNtExpectedDriver" After="NtExpectedDriver"/><LaunchConditions After="RawNtExpectedDriver"/>')
+}
+if ($ExtraFolder) {
+    $extraRoot = (Resolve-Path -LiteralPath $ExtraFolder).Path.TrimEnd('\')
+    $extraFiles = @(Get-ChildItem -LiteralPath $extraRoot -Recurse -File | Sort-Object FullName)
+    if ($extraFiles.Count -eq 0) { throw 'ExtraFolder has no files.' }
+    $byDirectory = @{}
+    $allDirectories = [Collections.Generic.HashSet[string]]::new()
+    $n = 0
+    foreach ($file in $extraFiles) {
+        $relative = $file.FullName.Substring($extraRoot.Length).TrimStart('\').Replace('\','/')
+        if ($relative -match '(^|/)\.\.?(/|$)' -or $relative -eq $exeName) { throw "Unsafe or clashing extra file path: $relative" }
+        $destination = Join-Path $root "payload/$relative"
+        New-Item -ItemType Directory -Force -Path ([IO.Path]::GetDirectoryName($destination)) | Out-Null
+        Copy-Item -LiteralPath $file.FullName -Destination $destination
+        $directory = if ($relative.Contains('/')) { $relative.Substring(0, $relative.LastIndexOf('/')) } else { '' }
+        $walk = $directory
+        while ($walk) { [void]$allDirectories.Add($walk); $walk = if ($walk.Contains('/')) { $walk.Substring(0, $walk.LastIndexOf('/')) } else { '' } }
+        $id = "Extra$n"; $n++
+        if (-not $byDirectory.ContainsKey($directory)) { $byDirectory[$directory] = [Collections.Generic.List[string]]::new() }
+        $byDirectory[$directory].Add('<Component Id="' + $id + '" Guid="' + (StableGuid "$ProductId/file/$relative") + '"><File Id="' + $id + 'File" Source="' + (Xml $destination) + '" KeyPath="yes"/></Component>')
+        $refs.Add('<ComponentRef Id="' + $id + '"/>')
+        $files.Add(@{ path = $relative; source = "payload/$relative" })
+    }
+    $directoryIds = @{}
+    $d = 0
+    foreach ($directory in ($allDirectories | Sort-Object)) { $directoryIds[$directory] = "ExtraDir$d"; $d++ }
+    function Format-ExtraDirectory([string]$prefix) {
+        $xml = if ($byDirectory.ContainsKey($prefix)) { $byDirectory[$prefix] -join '' } else { '' }
+        foreach ($child in ($allDirectories | Where-Object { ($(if ($_.Contains('/')) { $_.Substring(0, $_.LastIndexOf('/')) } else { '' })) -eq $prefix } | Sort-Object)) {
+            $name = if ($child.Contains('/')) { $child.Substring($child.LastIndexOf('/') + 1) } else { $child }
+            $xml += '<Directory Id="' + $directoryIds[$child] + '" Name="' + (Xml $name) + '">' + (Format-ExtraDirectory $child) + '</Directory>'
+        }
+        $xml
+    }
+    $extraDirectories += Format-ExtraDirectory ''
 }
 $inner = '<Directory Id="INSTALLFOLDER" Name="' + (Xml $segments[-1]) + '">' + ($components -join '') + $extraDirectories + '</Directory>'
 for ($i=$segments.Count-2; $i -ge 0; $i--) { $inner = '<Directory Id="Parent' + $i + '" Name="' + (Xml $segments[$i]) + '">' + $inner + '</Directory>' }
