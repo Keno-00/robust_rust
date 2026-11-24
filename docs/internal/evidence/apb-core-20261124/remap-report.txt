@@ -1,0 +1,111 @@
+APB PID 18384 created 134400024172400032 base 0x140000000 SHA-256 A4EA425A995BBD97A8789BF98A5E7E63E5D945FC9E193462B60375F070223742
+Writable sections: [(38B6000, 9183DC), (43B1000, 25CD8), (43D7000, 18), (43D8000, 356E), (4508000, 1000), (4509000, 4000)]
+Section 0x38B6000: read 0x9183DC bytes, 0 unreadable pages
+Name root candidate RVA 0x3EDA180: table 0x16C394100 count 271360 capacity 335729, 64/64 sampled entries valid
+Section 0x43B1000: read 0x25CD8 bytes, 0 unreadable pages
+Section 0x43D7000: read 0x18 bytes, 0 unreadable pages
+Section 0x43D8000: read 0x356E bytes, 0 unreadable pages
+Section 0x4508000: read 0x1000 bytes, 0 unreadable pages
+Section 0x4509000: read 0x4000 bytes, 0 unreadable pages
+NAME_ROOT_RVA = 0x3EDA180
+Object hash windows: 32774
+Object hash candidate RVA 0x3F02F10: 32768 buckets used, 202/202 sampled objects resolve
+OBJECT_HASH_RVA = 0x3F02F10
+Walk: 442651 objects, 3185 classes, 3 read failures
+Descriptor 0x9776D000 Some("cMusicStudioThemeDescriptor"): payload Some((0, 0)) head None
+Descriptor 0x75CB018 Some("Default__cMusicStudioThemeDescriptor"): payload Some((0, 0)) head None
+--- Verux.APB core ---
+TYPE cHUDBase: class name index None, Default__ vtable Some(2D053F8), 2 instance groups; largest [(42B0, 2D053F8, 1, 170D40B80), (42B1, 2D053F8, 1, 75C8338)]
+TYPE WorldInfo: class name index None, Default__ vtable None, 0 instance groups; largest []
+TYPE cAPBPlayerController: class name index None, Default__ vtable None, 0 instance groups; largest []
+TYPE cAPBPawn: class name index None, Default__ vtable Some(2C494A0), 2 instance groups; largest [(1694, 2C494A0, F, 170CB6080), (1695, 2C494A0, 1, 7562258)]
+TYPE cAPBVehicle: class name index None, Default__ vtable Some(2CC4C88), 2 instance groups; largest [(17C0, 2CC4C88, 17, 2116D2180), (17C1, 2CC4C88, 1, 7578558)]
+TYPE CylinderComponent: class name index None, Default__ vtable Some(33602A8), 5 instance groups; largest [(CC7, 33602A8, 3A9, BCD76A0), (6723, 33602A8, 61, 17AF34E00), (127CD, 33602A8, 6, 779C430), (11D62, 33602A8, 1, 7785A20), (CC8, 33602A8, 1, 74C6C40)]
+TYPE PrefabInstance: class name index None, Default__ vtable Some(330BBE0), 1296 instance groups; largest [(1287, 330BBE0, 47E9, B2B38F0), (3C1CB, 330BBE0, 1, C1D3500), (3BF67, 330BBE0, 1, C1B3520), (3BB3E, 330BBE0, 1, C1C44D0), (3C0FA, 330BBE0, 1, C18C700), (3C342, 330BBE0, 1, C1C05D0)]
+TYPE Level: class name index None, Default__ vtable Some(33C3BB8), 2 instance groups; largest [(20E, 33C3BB8, 101, 1698EF900), (E89, 33C3BB8, 1, 74E6DB0)]
+TYPE cAPBProjectile: class name index None, Default__ vtable Some(2D070F8), 2 instance groups; largest [(1A7E, 2D070F8, 5, 15BECA000), (1A7F, 2D070F8, 1, 75B7AA0)]
+TYPE cAudioEmitterPositioningActor: class name index None, Default__ vtable Some(2C3FA28), 32 instance groups; largest [(42E8, 2C3FA28, 6E, 1E178CF00), (33C8D, 2C3FA28, 3, E9051D0), (33C4C, 2C3FA28, 3, E903FB0), (29FF1, 2C3FA28, 1, A2F5CB0), (34A4D, 2C3FA28, 1, E762540), (2AB37, 2C3FA28, 1, 163FCE080)]
+TYPE cProp: class name index None, Default__ vtable None, 0 instance groups; largest []
+name 4743: Some("PrefabInstance")
+name 526: Some("-1f.")
+name 6782: Some("cAPBProjectile")
+name 6783: Some("Default__cAPBProjectile")
+name 17128: Some("cAudioEmitterPositioningActor")
+name 1015: Some("61f.")
+name 3271: Some("CylinderComponent")
+PREFAB 0xB2B38F0 +0x308 asset 0xA48DCF8 vtable 0x330C338 index 176225 name Some("Industrial01_Interior_Prefab") class Some("Prefab")
+Generic prefab positions: 18257
+name 6176: Some("cSkeletalMeshCacheEntry") groups [(2F07270, 1)]
+name 6177: Some("Default__cSkeletalMeshCacheEntry") groups [(2C98720, 1)]
+name 6178: Some("cStatueCacheEntry") groups [(2F07270, 1)]
+name 6179: Some("Default__cStatueCacheEntry") groups [(2C98940, 1)]
+name 6180: Some("cVehicleCacheEntry") groups [(2C98B58, 33), (2F07270, 1)]
+name 6181: Some("Default__cVehicleCacheEntry") groups [(2C98B58, 1)]
+name 6182: Some("cCustomisedAssetMemoryCache") groups [(2C98D70, 1), (2F07270, 1)]
+name 6183: Some("Default__cCustomisedAssetMemoryCache") groups [(2C98D70, 1)]
+name 6184: Some("cTexture2DCustomised") groups [(2F07270, 1), (2C998D0, 261)]
+name 6185: Some("Default__cTexture2DCustomised") groups [(2C998D0, 1)]
+name 6186: Some("cThumbnailHelper") groups [(2F07270, 1)]
+name 6187: Some("Default__cThumbnailHelper") groups [(2C99B58, 1)]
+name 6188: Some("Default__cCustomisedSkeletalMeshComponent") groups [(2C99DB0, 1)]
+name 6189: Some("Default__cProp") groups [(2CCCE60, 1)]
+name 6190: Some("Default__cPropComponent") groups [(2CCB6E0, 1)]
+name 6191: Some("Default__cPropComponent_Damageable") groups [(2CCBC68, 1)]
+name 6192: Some("Default__cPropComponent_LC") groups [(2CCD9F8, 1)]
+name 6193: Some("Default__cPropComponent_Master") groups [(2CCBF60, 1)]
+name 6194: Some("Default__cPropComponent_MeshSwitch") groups [(2CCC240, 1)]
+name 6195: Some("Default__cPropComponent_RigidBody") groups [(2CCC538, 1)]
+name 6196: Some("Default__cPropComponent_TaskTarget") groups [(2CCDCE8, 1)]
+name 6197: Some("Default__cPropComponent_Timer") groups [(2CCC810, 1)]
+name 6198: Some("Default__cPropComponent_Use") groups [(2CCB9A0, 1)]
+name 6199: Some("APBAnimNotify_Kismet") groups [(2CCE468, 2), (2F07270, 1)]
+name 6200: Some("Default__APBAnimNotify_Kismet") groups [(2CCE468, 1)]
+name 6201: Some("APBSeqAct_VehicleParticleBinding") groups [(2F07270, 1)]
+name 6202: Some("Default__APBSeqAct_VehicleParticleBinding") groups [(2CCE670, 1)]
+name 6203: Some("APBSeqEvent_Actor") groups [(2F07270, 1)]
+name 6204: Some("Default__APBSeqEvent_Actor") groups [(2CCE950, 1)]
+name 6205: Some("APBSeqEvent_BombTaskTarget") groups [(2F07270, 1)]
+Default 6189 (Some("Default__cProp")) 0x757E090: class 0x46DC2C0 name index 592
+Default 17073 (Some("Default__cHUDBase")) 0x75C8338: class 0x1870E200 name index 17072
+Default 5781 (Some("Default__cAPBPawn")) 0x7562258: class 0x4704B80 name index 5780
+Default 6081 (Some("Default__cAPBVehicle")) 0x7578558: class 0x46F0900 name index 6080
+Default 6783 (Some("Default__cAPBProjectile")) 0x75B7AA0: class 0x46A4180 name index 6782
+Default 4744 (Some("Default__PrefabInstance")) 0x7522C00: class 0x4765F80 name index 4743
+HUD 0x170D40B80 vtable 0x2D053F8 index 17072 name Some("cHUDBase") class Some("cHUDBase")
+    HUD +0x2E0 world 0x94D4510 vtable 0x332ACF8 index 430 name Some("+1f.") class Some("+1f.")
+    world +0x358 controller 0x160954080 vtable 0x2C13D28 index 1015 name Some("61f.") class Some("61f.")
+    controller +0x790 possessed 0x1F717E080 vtable 0x2C494A0 index 5780 name Some("cAPBPawn") class Some("cAPBPawn")
+    possessed +0x248 collision 0x174ECD800 vtable 0x33602A8 index 3271 name Some("CylinderComponent") class Some("CylinderComponent")
+    HUD +0x680 matrix [0.111454815, -0.07070937, 0.9898965, 0.99088734, 0.9095607, 0.008194049, -0.12132136, -0.1214428, 0.0003508243, 1.2197434, 0.05820001, 0.058258265, 0.0, 0.0, -9.99, 0.0]
+    HUD +0x6C0 camera [139127.47, 182463.55, 94.720184]; pawn +0x88 [139270.52, 182401.55, 93.67203]
+    world +0x44 level 0x94D41D0 vtable 0x33C3BB8 index 526 name Some("-1f.") class Some("Level")
+    level +0x44 owner 0x94D3E88 vtable 0x331F518 index 1032 name Some("*1f.") class Some("World")
+    roster 0: 0x2116D2180 vtable 0x2CC4C88 index 6080 name Some("cAPBVehicle") class Some("cAPBVehicle")
+    roster 1: 0x15EE89880 vtable 0x2CC4C88 index 6080 name Some("cAPBVehicle") class Some("cAPBVehicle")
+    roster 2: 0x1DE744100 vtable 0x2C494A0 index 5780 name Some("cAPBPawn") class Some("cAPBPawn")
+    camera root candidates: 137165
+    camera table RVA 0x3FD64E0 -> 0x71F8080 slot 2
+HUD 0x75C8338 vtable 0x2D053F8 index 17073 name Some("Default__cHUDBase") class Some("cHUDBase")
+    HUD +0x2E0 world 0x0 (not a pointer)
+    world +0x358 controller 0x0 (not a pointer)
+    controller +0x790 possessed 0x0 (not a pointer)
+    possessed +0x248 collision 0x0 (not a pointer)
+    world +0x44 level 0x0 (not a pointer)
+    level +0x44 owner 0x0 (not a pointer)
+    camera root candidates: 137165
+Cursor estimate RVA 0x3DDB5C0; 23 leads, nearest first:
+    cursor lead RVA 0x3DDB5A0 -> 0x9270D480 +0x134 = 130
+    cursor lead RVA 0x3E667E0 -> 0x388D8090 +0x134 = 99
+    cursor lead RVA 0x3E7B930 -> 0x679B8610 +0x134 = 48
+    cursor lead RVA 0x3E81040 -> 0x64595AC0 +0x134 = 48
+    cursor lead RVA 0x3E84838 -> 0x64EB92F0 +0x134 = 48
+    cursor lead RVA 0x3E8D978 -> 0x17246E490 +0x134 = 48
+    cursor lead RVA 0x3E8FEA8 -> 0x67647B48 +0x134 = 48
+    cursor lead RVA 0x3E903B8 -> 0x64ACCFD0 +0x134 = 48
+    cursor lead RVA 0x3EA1718 -> 0x1750B630 +0x134 = 99
+    cursor lead RVA 0x3EA4080 -> 0x677A3F38 +0x134 = 48
+    cursor lead RVA 0x3EB5C98 -> 0x37D83558 +0x134 = 48
+    cursor lead RVA 0x3EB9790 -> 0x64ACA5E8 +0x134 = 48
+    cursor lead RVA 0x3EC9AC0 -> 0x679BA968 +0x134 = 48
+    cursor lead RVA 0x3ED47A0 -> 0x175021B0 +0x134 = 99
+    cursor lead RVA 0x3F0F158 -> 0x1DE9556C0 +0x134 = 99

@@ -13,7 +13,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use crate::apb_atlas::module_base_and_identity;
 use crate::atlas_reader::AtlasReader;
 
-const CURSOR_POINTER_RVA: EncodedOffset = EncodedOffset::new(0x3BD3340);
+const CURSOR_POINTER_RVA: EncodedOffset = EncodedOffset::new(0x3DDB5A0);
 const CURSOR_FIELD_OFFSET: EncodedOffset = EncodedOffset::new(0x134);
 const WHITE: u32 = 130;
 const GREEN: u32 = 48;

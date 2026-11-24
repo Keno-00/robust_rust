@@ -5,11 +5,11 @@ use crate::apb_orchid::{self as orchid, PawnRef};
 use crate::atlas_reader::AtlasReader;
 use crate::lattice_encoding::{EncodedAddress, EncodedOffset, ObjectType};
 
-const LEVEL: ObjectType = ObjectType::new(0x3208BF8, 1160);
-const OWNER: ObjectType = ObjectType::new(0x3164988, 1151);
-const PREFAB: ObjectType = ObjectType::new(0x3151050, 4741);
-const PROP: ObjectType = ObjectType::new(0x2B3A290, 1650);
-const ASSET_RVA: EncodedOffset = EncodedOffset::new(0x31517A8);
+const LEVEL: ObjectType = ObjectType::new(0x33C3BB8, 526);
+const OWNER: ObjectType = ObjectType::new(0x331F518, 1032);
+const PREFAB: ObjectType = ObjectType::new(0x330BBE0, 4743);
+const PROP: ObjectType = ObjectType::new(0x2CCCE60, 592);
+const ASSET_RVA: EncodedOffset = EncodedOffset::new(0x330C338);
 const MAX_CHANGED_CAPTURES: u8 = 5;
 
 /// Asset name indices are allocated at runtime; red remains visually unconfirmed.
@@ -26,7 +26,7 @@ pub(crate) fn asset_color(
     if rva != ASSET_RVA.get() {
         return Ok(None);
     }
-    let root_address = base + const { EncodedOffset::new(0x3CD1F00) }.get();
+    let root_address = base + const { EncodedOffset::new(0x3EDA180) }.get();
     let root = orchid::read::<16>(reader, pid, root_address)?;
     let table = orchid::u64_at(&root, 0);
     let count = orchid::u32_at(&root, 8);

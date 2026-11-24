@@ -697,7 +697,7 @@ pub fn run_action_loop(shared_state: Arc<Mutex<RunnerControl>>, event_proxy: Eve
         let source = find_running_apb_pid().and_then(ApbCursorSource::connect);
         match source {
             Ok(source) => {
-                log_info!("APB pegasus cursor source connected through EchoDriver: APB.exe+0x3BD3340 -> +0x134; green=48, white=130; prior red=99 awaits confirmation on this build.");
+                log_info!("APB pegasus cursor source connected through EchoDriver: APB.exe+0x3DDB5A0 -> +0x134; green=48, white=130; prior red=99 awaits confirmation on this build.");
                 Some(source)
             }
             Err(error) => {

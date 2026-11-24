@@ -8,9 +8,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-const PREFAB: ObjectType = ObjectType::new(0x3151050, 4741);
-const PROP: ObjectType = ObjectType::new(0x2B3A290, 1650);
-const PROJECTILE: ObjectType = ObjectType::new(0x2B68D90, 6770);
+const PREFAB: ObjectType = ObjectType::new(0x330BBE0, 4743);
+const PROP: ObjectType = ObjectType::new(0x2CCCE60, 592);
+const PROJECTILE: ObjectType = ObjectType::new(0x2D070F8, 6782);
 const POSITION: EncodedOffset = EncodedOffset::new(0x88);
 const ACTOR_WORLD: EncodedOffset = EncodedOffset::new(0x2E0);
 const PREFAB_ASSET: EncodedOffset = EncodedOffset::new(0x308);

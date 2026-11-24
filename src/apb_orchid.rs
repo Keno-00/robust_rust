@@ -3,13 +3,13 @@
 use crate::lattice_encoding::{EncodedAddress, EncodedOffset, ObjectType};
 use crate::atlas_reader::AtlasReader;
 
-// 2026-10-18 capture and operator checks: docs/APB_CORE_UPDATE_20261018.md.
-pub const PAWN: ObjectType = ObjectType::new(0x2AB7090, 5778);
-pub const CAMERA: ObjectType = ObjectType::new(0x2B67088, 16929);
-pub(crate) const WORLD: ObjectType = ObjectType::new(0x316FF28, 430);
-const CONTROLLER: ObjectType = ObjectType::new(0x2A87258, 998);
-pub(crate) const VEHICLE: ObjectType = ObjectType::new(0x2B320A8, 6064);
-const COLLISION_COMPONENT: ObjectType = ObjectType::new(0x31A54F8, 3269);
+// 2026-11-24 live remap: docs/APB_CORE_UPDATE_20261124.md.
+pub const PAWN: ObjectType = ObjectType::new(0x2C494A0, 5780);
+pub const CAMERA: ObjectType = ObjectType::new(0x2D053F8, 17072);
+pub(crate) const WORLD: ObjectType = ObjectType::new(0x332ACF8, 430);
+const CONTROLLER: ObjectType = ObjectType::new(0x2C13D28, 1015);
+pub(crate) const VEHICLE: ObjectType = ObjectType::new(0x2CC4C88, 6080);
+const COLLISION_COMPONENT: ObjectType = ObjectType::new(0x33602A8, 3271);
 // User-calibrated APB displacement: 8000 world units = 80 meters.
 pub const APB_UNITS_PER_METER: f64 = 100.0;
 

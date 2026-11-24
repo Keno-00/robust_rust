@@ -28,8 +28,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowW, GetClientRect, GetForegroundWindow, GetWindowThreadProcessId,
 };
 pub const EXPECTED_SHA256: &str =
-    "35AEF01734AAB20B4B0C622ADDF5706F9E75CAAA98D5B84A0EA14D9DF72EE453";
-const CAMERA_TABLE_RVA: EncodedOffset = EncodedOffset::new(0x3DCE240);
+    "A4EA425A995BBD97A8789BF98A5E7E63E5D945FC9E193462B60375F070223742";
+const CAMERA_TABLE_RVA: EncodedOffset = EncodedOffset::new(0x3FD64E0);
 pub const ROSTER_REFRESH_INTERVAL: Duration = Duration::from_millis(500);
 pub const ROSTER_RETRY_INTERVAL: Duration = Duration::from_millis(50);
 pub const ROSTER_CHANGE_POLL_INTERVAL: Duration = Duration::from_millis(10);

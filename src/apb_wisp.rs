@@ -9,9 +9,9 @@ use crate::lattice_encoding::{EncodedAddress, EncodedOffset, ObjectType};
 use std::collections::{HashMap, HashSet};
 use std::time::{Instant, SystemTime};
 
-const PROJECTILE: ObjectType = ObjectType::new(0x2B68D90, 6770);
-const LEVEL_VTABLE: EncodedOffset = EncodedOffset::new(0x3208BF8);
-const NAME_ROOT: EncodedOffset = EncodedOffset::new(0x3CD1F00);
+const PROJECTILE: ObjectType = ObjectType::new(0x2D070F8, 6782);
+const LEVEL_VTABLE: EncodedOffset = EncodedOffset::new(0x33C3BB8);
+const NAME_ROOT: EncodedOffset = EncodedOffset::new(0x3EDA180);
 const OUTER: EncodedOffset = EncodedOffset::new(0x44);
 const ACTORS: EncodedOffset = EncodedOffset::new(0xB4);
 const POSITION: EncodedOffset = EncodedOffset::new(0x88);
